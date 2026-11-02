@@ -16,6 +16,13 @@ const DEFAULT_INDICES = [
   { label: "NIFTY FIN SERVICE", key: "nse_cm|Nifty Fin Service" },
 ];
 
+const DEFAULT_COMMODITIES = [
+  { label: "Gold", key: "mcx_fo|104765" },
+  { label: "Silver", key: "mcx_fo|105506" },
+  { label: "Crude Oil", key: "mcx_fo|106247" },
+  { label: "Natural Gas", key: "mcx_fo|106985" },
+];
+
 function TapeItem({ k, label }: { k: string; label: string }) {
   const q = useQuote(k);
   const t = tone(q?.c);
@@ -114,7 +121,19 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
   const s = useSession();
   const theme = useTheme();
   const phone = useIsPhone();
-  useWant(s?.indices.map((i) => i.key) ?? []);
+
+  const indices = s?.indices && s.indices.length > 0 ? s.indices : DEFAULT_INDICES;
+  const commodities = s?.commodities && s.commodities.length > 0 ? s.commodities : DEFAULT_COMMODITIES;
+
+  useWant([
+    ...indices.map((i) => i.key),
+    ...commodities.map((c) => c.key),
+  ]);
+
+  const mcxOpen = s?.market_mcx?.state === "open";
+  const nseOpen = s?.market?.state === "open";
+  // During evening session when equity is closed but MCX is open, show actively trading commodities on topbar
+  const tapeItems = (!nseOpen && mcxOpen) ? commodities.slice(0, 4) : indices.slice(0, 4);
   return (
     <div className="app">
       {!phone && <nav className="rail" aria-label="Main">
@@ -156,7 +175,7 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
         )}
         <header className="topbar">
           <div className="tape" aria-label="Index prices">
-            {(s?.indices && s.indices.length > 0 ? s.indices : DEFAULT_INDICES).slice(0, 4).map((i) => <TapeItem key={i.key} k={i.key} label={i.label} />)}
+            {tapeItems.map((i) => <TapeItem key={i.key} k={i.key} label={i.label} />)}
           </div>
           <div className="topbar-right">
             <Clock />
