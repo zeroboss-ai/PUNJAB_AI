@@ -41,8 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python requirements
 COPY requirements.txt ./
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt && \
-    pip install --no-deps "https://github.com/Kotak-Neo/Kotak-neo-api-v2/archive/refs/heads/main.zip"
+    pip install -r requirements.txt
 
 # Copy application backend and configuration
 COPY terminal/ ./terminal/
