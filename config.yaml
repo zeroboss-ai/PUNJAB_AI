@@ -1,0 +1,90 @@
+# ---------------------------------------------------------------------------
+#  Kotak Neo - Opening Range option-selling terminal
+#  Start in paper mode. Do NOT switch to live until you have run paper mode
+#  for several sessions and checked every trade against your own chart.
+# ---------------------------------------------------------------------------
+mode: sample             # sample = invented data, no login (try the UI) | paper = live Kotak data + simulated orders
+                         # live = REAL orders | replay = offline algo test (command line only)
+instrument: NIFTY        # NIFTY | SENSEX (one index per session)
+
+strategy:
+  range_start: "09:15"       # first candle of the opening range
+  range_candles: 4           # candles 09:15, 09:16, 09:17, 09:18 -> range closes at 09:19
+  sl_candle: "09:16"         # SL = HIGH of this candle of the option you sold
+  entry_cutoff: "15:00"      # no NEW entries after this time (my default - change if you like)
+  exit_time: "15:10"         # square off everything
+  max_trades_per_day: 1      # my default - the strategy text does not say how many
+  lots: 1
+  entry_limit_buffer: 1.0    # sell limit order is placed Rs 1 below LTP so it fills
+  max_tick_age_s: 10         # ignore a signal if any of the 3 prices is older than this
+  strike_window: 8           # pre-subscribe ATM +/- 8 strikes (ATM is decided from the 09:15 open)
+  expiry_offset: 0           # 0 = nearest expiry (0DTE on expiry day), 1 = next expiry
+  min_lead_s: 5              # options must be subscribed at least this many seconds before 09:15
+
+risk:
+  max_daily_loss: 0          # Rs. 0 = no limit (set your own). If you set an amount, trading halts for the day when booked + open loss reaches it
+  max_lots: 1
+  exchange_sl: true          # keep a real stop-loss order resting at the exchange as a safety net
+  sl_limit_buffer: 5.0       # exchange SL-limit price = trigger + 5
+  entry_timeout_s: 5
+  exit_timeout_s: 3
+  exit_retries: 5
+  exit_buffer: 1.0
+  feed_stale_s: 30           # in a trade and no ticks for 30s -> square off
+  sl_poll_s: 3
+  unclear_retries: 5         # if Kotak's order status cannot be read, re-check this many times...
+  unclear_wait_s: 1          # ...this many seconds apart, then HALT and alert (never guess)
+
+manual:                      # limits for orders you place by hand in the terminal
+  max_lots_per_order: 20
+  max_order_value: 2500000   # Rs, qty x price
+  block_after_loss: true     # after the daily loss limit (risk.max_daily_loss) only closing orders are accepted
+  squareoff_buffer_pct: 3    # square-off sends a limit this % through the last price so it fills
+  paper_capital: 1000000     # starting balance of the simulated account
+
+# Index cards on the Dashboard. Kotak subscribes indices by NAME. "Nifty 50", "Nifty Bank" and "SENSEX" are in
+# Kotak's docs; the other names are best guesses - tools/discover.py shows which ones your account really streams.
+dashboard_indices:
+  - {label: "NIFTY 50", segment: nse_cm, token: "Nifty 50"}
+  - {label: "NIFTY BANK", segment: nse_cm, token: "Nifty Bank"}
+  - {label: "SENSEX", segment: bse_cm, token: "SENSEX"}
+  - {label: "NIFTY FIN SERVICE", segment: nse_cm, token: "Nifty Fin Service"}
+  - {label: "NIFTY MID SELECT", segment: nse_cm, token: "NIFTY MID SELECT"}
+  - {label: "INDIA VIX", segment: nse_cm, token: "India VIX"}
+
+demo_scenario: put_sell      # sample mode: the synthetic day the Algo page's "Run demo day" button replays
+
+poll_interval_s: 0.5
+mcx_close_time: ""          # commodities: "" = automatic (23:30 in US summer time, 23:55 in winter, from 2 Nov 2026 it is 23:55). Or force "HH:MM".
+static_ip: ""                # live: put the static IP you registered with Kotak here. If Kotak sees a different
+                             # IP at login the terminal refuses to start (SEBI rules: orders from other IPs are rejected)
+data_dir: data
+log_dir: logs
+host: 127.0.0.1              # keep it local; reach it from your laptop with an SSH tunnel
+port: 8000
+
+instruments:
+  NIFTY:
+    underlying: NIFTY
+    index_segment: nse_cm
+    index_token: "Nifty 50"
+    index_aliases: ["Nifty 50", "NIFTY", "NIFTY 50", "26000"]
+    option_segment: nse_fo
+    strike_step: 50
+    paper_lot_size: 75        # replay/synthetic only
+  SENSEX:
+    underlying: SENSEX
+    index_segment: bse_cm
+    index_token: "SENSEX"
+    index_aliases: ["SENSEX", "Sensex", "1"]
+    option_segment: bse_fo
+    strike_step: 100
+    paper_lot_size: 20        # replay/synthetic only
+
+# Telegram alerts. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env. Errors and "ACTION REQUIRED" are always sent.
+alerts:
+  enabled: true
+  strategy_events: true     # started / signal / in position / closed / finished (your strategies and the built-in algo)
+  warnings: true            # things that did not go as planned
+  orders: true              # orders you place by hand
+  daily_summary: true       # one message after 15:35 with today's round trips

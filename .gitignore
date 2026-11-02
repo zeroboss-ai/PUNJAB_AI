@@ -1,0 +1,40 @@
+# Secrets and Credentials - CRITICAL
+.env
+.env.*
+!.env.example
+*.env
+.env.txt
+*.pem
+*.key
+*.cert
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.js
+frontend/coverage/
+frontend/dist/
+
+# Local databases and logs
+logs/
+data/
+*.sqlite
+*.db
+*.log
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

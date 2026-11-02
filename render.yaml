@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: punjab-ai-terminal
+    env: docker
+    plan: starter          # Starter ($7/mo) ensures 24/7 uptime without sleep (Free tier sleeps after 15m)
+    region: singapore      # Lowest latency to Indian exchanges (NSE/BSE/MCX)
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DASHBOARD_PASSWORD
+        sync: false        # Prompts for secure password during Render deployment
+      - key: ALLOW_LIVE
+        value: "yes"
+      - key: ALLOW_REMOTE
+        value: "yes"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: PORT
+        value: "10000"
+      - key: NEO_ENVIRONMENT
+        value: "prod"
+      - key: NEO_CONSUMER_KEY
+        sync: false
+      - key: NEO_CONSUMER_SECRET
+        sync: false
+      - key: NEO_MOBILE_NUMBER
+        sync: false
+      - key: NEO_PASSWORD
+        sync: false
+      - key: NEO_MPIN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+    disk:
+      name: terminal-data
+      mountPath: /app/data
+      sizeGB: 1
