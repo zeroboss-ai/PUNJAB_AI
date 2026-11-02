@@ -109,10 +109,13 @@ def api_error(resp: Any) -> str | None:
     code = resp.get("stCode")
     stat = str(resp.get("stat", "")).strip().lower()
     if stat and stat != "ok":
-        msg = resp.get("emsg") or resp.get("errMsg") or resp.get("message") or resp.get("stat")
-        return f"{_short(msg)} (stCode {code})"
+        msg = resp.get("emsg") or resp.get("errMsg") or resp.get("message") or resp.get("rejRsn") or resp.get("stat")
+        extra = f": {resp['rejRsn']}" if resp.get("rejRsn") else ""
+        return f"{_short(msg)}{extra} (stCode {code})"
     if code not in (None, 200, "200"):
-        return f"{_short(resp.get('errMsg') or resp.get('emsg') or 'error')} (stCode {code})"
+        msg = resp.get("errMsg") or resp.get("emsg") or resp.get("rejRsn") or resp.get("message") or "error"
+        extra = f": {resp['rejRsn']}" if resp.get("rejRsn") else ""
+        return f"{_short(msg)}{extra} (stCode {code})"
     return None
 
 
@@ -493,6 +496,7 @@ def send_order(client, *, segment: str, symbol: str, side: str, qty: int, order_
     err = api_error(resp)
     if err is None and oid is not None:
         return str(oid)
+    log.warning("place_order failed. payload=%s response=%s", kw, resp)
     text = f"place_order: {err or 'reply had no order number'}"
     if resp is None or (isinstance(resp, dict) and ("Error" in resp or "Error Message" in resp) and not _definite(resp)):
         raise OrderUnknown(text)                                 # timeout etc.: may or may not have gone through
