@@ -1,5 +1,4 @@
-neo-api-client>=2.0.0
-kotakneoapi>=3.0.9
+https://github.com/Kotak-Neo/Kotak-neo-api-v2/archive/refs/heads/main.zip
 fastapi>=0.110
 uvicorn>=0.29
 websockets>=12.0

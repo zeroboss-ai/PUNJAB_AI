@@ -14,7 +14,7 @@ RUN cd frontend && npm ci
 
 # Copy full frontend sources and compile production bundle
 COPY frontend/ ./frontend/
-RUN cd frontend && npm run build
+RUN mkdir -p terminal/web && cd frontend && npm run build
 
 # ------------------------------------------------------------------------------
 # Stage 2: Python Runtime
@@ -31,10 +31,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies (curl for healthcheck, ca-certificates for TLS)
+# Install system dependencies (curl for healthcheck, ca-certificates for TLS, git)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python requirements
