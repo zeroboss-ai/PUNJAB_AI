@@ -259,11 +259,15 @@ class SampleChainProvider:
 
 
 COMMODITY_ALIASES = {
-    "SILVERM": "SILVER",
-    "GOLDM": "GOLD",
-    "CRUDEOILM": "CRUDEOIL",
-    "NATURALGASM": "NATURALGAS",
-    "NATGASMINI": "NATURALGAS",
+    # Typo / abbreviation mappings to official MCX underlying symbols:
+    "CRUDEM": "CRUDEOILM",
+    "CRUDEMINI": "CRUDEOILM",
+    "CRUDE": "CRUDEOIL",
+    "NATGAS": "NATURALGAS",
+    "NATGASM": "NATGASMINI",
+    "NATURALGASM": "NATGASMINI",
+    "SILVERMINI": "SILVERM",
+    "GOLDMINI": "GOLDM",
 }
 
 
@@ -426,12 +430,21 @@ class KotakChainProvider:
         log.info("Kotak option_chain reply for %s: %s", target, str(r)[:300])
         d = r.get("data") if isinstance(r.get("data"), dict) else r
         common = d.get("common_data") or {}
-        lot = int(_f(common.get("mktLot")) or 1)
+        lot = int(_f(common.get("mktLot")) or 0)
+        if lot <= 0:
+            mc = self._mcx()
+            if mc is not None:
+                try:
+                    lot = int(mc.mcx_names().get(target, {}).get("lot") or 1)
+                except Exception:
+                    lot = 1
+            else:
+                lot = 1
         exp_iso = (self._iso(common.get("expiryDt"), self._exchange(target)) if common.get("expiryDt") else None) or (expiry or "")[:10]
         spot_dict = d.get("spot") or {}
         fut_dict = d.get("future") or {}
         spot_val = _f(spot_dict.get("ltp")) or _f(fut_dict.get("ltp"))
-        raw = RawChain(und, exp_iso, lot, self._spot_key(target, exp_iso or expiry), spot_val, None)
+        raw = RawChain(target, exp_iso, lot, self._spot_key(target, exp_iso or expiry), spot_val, None)
         for side, kind in (("call", "CE"), ("put", "PE")):
             for it in d.get(side) or []:
                 ins = it.get("inst") or it.get("instrument") or {}

@@ -27,17 +27,17 @@ class Commodity:
 # The symbols below are the ones MCX is known to list; anything else Kotak lists is still searchable under its own name.
 COMMODITIES: list[Commodity] = [
     Commodity("GOLD", "Gold", "Gold", "big", "yellow metal"),
-    Commodity("GOLDM", "Gold Mini", "Gold", "mini"),
+    Commodity("GOLDM", "Gold Mini", "Gold", "mini", "goldmini gold-mini mini"),
     Commodity("GOLDGUINEA", "Gold Guinea", "Gold", "micro"),
     Commodity("GOLDPETAL", "Gold Petal", "Gold", "micro"),
     Commodity("GOLDTEN", "Gold Ten", "Gold", "micro"),
     Commodity("SILVER", "Silver", "Silver", "big", "chandi"),
-    Commodity("SILVERM", "Silver Mini", "Silver", "mini"),
+    Commodity("SILVERM", "Silver Mini", "Silver", "mini", "silvermini silver-mini mini chandi"),
     Commodity("SILVERMIC", "Silver Micro", "Silver", "micro"),
     Commodity("CRUDEOIL", "Crude Oil", "Crude Oil", "big", "crude brent wti"),
-    Commodity("CRUDEOILM", "Crude Oil Mini", "Crude Oil", "mini", "crude brent wti"),
+    Commodity("CRUDEOILM", "Crude Oil Mini", "Crude Oil", "mini", "crudem crude-mini crudemini crude brent wti mini"),
     Commodity("NATURALGAS", "Natural Gas", "Natural Gas", "big", "natgas ng"),
-    Commodity("NATGASMINI", "Natural Gas Mini", "Natural Gas", "mini", "natgas ng"),
+    Commodity("NATGASMINI", "Natural Gas Mini", "Natural Gas", "mini", "natgasm naturalgasm natgasmini mini natgas ng"),
     Commodity("COPPER", "Copper", "Base metals", "big"),
     Commodity("COPPERM", "Copper Mini", "Base metals", "mini"),
     Commodity("ZINC", "Zinc", "Base metals", "big"),
@@ -82,7 +82,13 @@ def resolve(words: list[str]) -> list[str]:
     ws = [w.upper() for w in words if w]
     if not ws:
         return []
-    return [c.name for c in COMMODITIES if all(w in _hay(c) for w in ws)]
+    exact = [c.name for c in COMMODITIES if any(w == c.name for w in ws)]
+    matched = [c.name for c in COMMODITIES if all(w in _hay(c) for w in ws)]
+    out: list[str] = []
+    for name in exact + matched:
+        if name not in out:
+            out.append(name)
+    return out
 
 
 # ---------------------------------------------------------------------------------------- hours

@@ -4,7 +4,15 @@ import { expiryLabel, daysTo, openUnderlying, setChainSel, useChainSel, useRecen
 import { usePoll } from "../lib/store";
 import { UnderlyingSearch } from "./UnderlyingSearch";
 
-const QUICK_CM: [string, string][] = [["GOLD", "Gold"], ["SILVER", "Silver"], ["CRUDEOIL", "Crude"], ["NATURALGAS", "Nat Gas"]];
+const QUICK_CM: [string, string][] = [
+  ["GOLD", "Gold"],
+  ["GOLDM", "GoldM"],
+  ["SILVER", "Silver"],
+  ["SILVERM", "SilverM"],
+  ["CRUDEOIL", "Crude"],
+  ["CRUDEOILM", "CrudeM"],
+  ["NATURALGAS", "Nat Gas"],
+];
 
 export function ChainControls({ data, allowAll = true, extra }: { data: ChainData | null; allowAll?: boolean; extra?: ReactNode }) {
   const sel = useChainSel();
