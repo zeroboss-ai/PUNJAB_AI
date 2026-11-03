@@ -75,16 +75,25 @@ export function Pnl({ v, dp = 2 }: { v: number | null | undefined; dp?: number }
 
 export function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    ref.current?.focus();
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Only focus the modal dialog container if active focus is not already inside it (e.g. autoFocus inputs)
+    if (!ref.current?.contains(document.activeElement)) {
+      ref.current?.focus();
+    }
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseRef.current();
+    };
     window.addEventListener("keydown", esc);
     return () => {
       window.removeEventListener("keydown", esc);
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
+
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -99,15 +108,21 @@ export function Modal({ title, onClose, children, footer }: { title: string; onC
 
 export function Drawer({ side, children, onClose, label }: { side: "B" | "S"; children: ReactNode; onClose: () => void; label: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseRef.current();
+    };
     window.addEventListener("keydown", esc);
     return () => {
       window.removeEventListener("keydown", esc);
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
+
   return (
     <>
       <div className="scrim" onClick={closeTicket} />
