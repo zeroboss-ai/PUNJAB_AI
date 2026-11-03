@@ -242,13 +242,14 @@ class AccountVault:
             return d
         return accts[0]["id"] if len(accts) == 1 else ""
 
-    def public(self, connected_id: str | None = None) -> list[dict[str, Any]]:
+    def public(self, connected_id: str | None = None, connected_ids: list[str] | set[str] | None = None) -> list[dict[str, Any]]:
         d = self.default_id()
+        c_set = set(connected_ids) if connected_ids is not None else ({connected_id} if connected_id else set())
         out = []
         for a in self._all():
             out.append({"id": a["id"], "label": a["label"], "source": a["source"], "ucc": mask_ucc(a["ucc"]), "mobile": mask_mobile(a["mobile"]),
                         "token": _tail(a["consumer_key"], 4), "has_mpin": bool(a["mpin"]), "has_totp_secret": bool(a.get("totp_secret")),
-                        "static_ip": a.get("static_ip", ""), "default": a["id"] == d, "connected": a["id"] == connected_id,
+                        "static_ip": a.get("static_ip", ""), "default": a["id"] == d, "connected": a["id"] in c_set,
                         "editable": a["source"] == "saved"})
         return out
 

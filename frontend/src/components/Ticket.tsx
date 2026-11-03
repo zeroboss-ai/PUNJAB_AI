@@ -43,6 +43,18 @@ function Ticket({ req }: { req: TicketReq }) {
   const [price, setPrice] = useState<string>(m && m.price ? String(m.price) : "");
   const [trigger, setTrigger] = useState<string>(m && m.trigger ? String(m.trigger) : "");
   const [validity, setValidity] = useState<"DAY" | "IOC">((m?.validity as "DAY" | "IOC") ?? "DAY");
+  const connectedAccounts = (sess?.accounts && sess.accounts.length > 0)
+    ? sess.accounts
+    : (sess?.account ? [sess.account] : []);
+  const [targetAccount, setTargetAccount] = useState<string>(() => {
+    if (req.account_id && connectedAccounts.some((a) => a.id === req.account_id)) {
+      return req.account_id;
+    }
+    if (m?.account_id && connectedAccounts.some((a) => a.id === m.account_id)) {
+      return m.account_id;
+    }
+    return sess?.active_account_id || (connectedAccounts[0]?.id ?? "");
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientId = useRef(uuid());
@@ -87,9 +99,12 @@ function Ticket({ req }: { req: TicketReq }) {
           body: {
             key: req.key, side, lots: deriv ? lots : 0, qty: deriv ? 0 : qty, product, order_type: otype,
             price: needsPrice ? Number(price) : 0, trigger: needsTrigger ? Number(trigger) : 0, validity, client_id: clientId.current,
+            account_id: targetAccount,
           },
         });
-        toast(`${side === "B" ? "Buy" : "Sell"} order sent · ${r.qty} × ${req.label}`);
+        const chosen = connectedAccounts.find((a) => a.id === targetAccount);
+        const acctText = targetAccount === "all" ? "on ALL accounts" : chosen ? `[${chosen.label}]` : "";
+        toast(`${side === "B" ? "Buy" : "Sell"} order sent ${acctText} · ${r.qty} × ${req.label}`);
       }
       closeTicket();
     } catch (e) {
@@ -117,6 +132,28 @@ function Ticket({ req }: { req: TicketReq }) {
           <CloseBtn onClick={closeTicket} />
         </div>
         <div className="drawer-b">
+          {connectedAccounts.length > 0 && !m && (
+            <div className="field">
+              <label htmlFor="t-acct">Account (where to punch)</label>
+              <select
+                id="t-acct"
+                className="select"
+                value={targetAccount}
+                onChange={(e) => setTargetAccount(e.target.value)}
+                style={{ width: "100%", padding: "7px 10px", fontSize: 13, fontWeight: 550 }}
+              >
+                {connectedAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label} ({a.ucc})
+                  </option>
+                ))}
+                {connectedAccounts.length > 1 && (
+                  <option value="all">⚡ All accounts ({connectedAccounts.map((a) => a.label).join(", ")})</option>
+                )}
+              </select>
+            </div>
+          )}
+
           {!m && (
             <div className="seg side full" role="group" aria-label="Side">
               <button className="b" aria-pressed={side === "B"} onClick={() => setSide("B")}>Buy</button>
@@ -202,7 +239,13 @@ function Ticket({ req }: { req: TicketReq }) {
             {busy ? "Sending…" : m ? "Save changes" : side === "B" ? "Buy" : "Sell"}
           </button>
           <span className="hint" style={{ textAlign: "center" }}>
-            {sess?.mode === "live" ? "This sends a real order to Kotak." : sess?.mode === "paper" ? "Paper mode: simulated order at real prices." : "Sample mode: simulated order at invented prices."}
+            {sess?.mode === "live"
+              ? targetAccount === "all"
+                ? "This sends real orders to ALL connected Kotak accounts."
+                : `This sends a real order to ${connectedAccounts.find((a) => a.id === targetAccount)?.label ?? "Kotak"}.`
+              : sess?.mode === "paper"
+              ? "Paper mode: simulated order at real prices."
+              : "Sample mode: simulated order at invented prices."}
           </span>
         </div>
       </div>

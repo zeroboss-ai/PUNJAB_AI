@@ -65,7 +65,17 @@ function StatusPills() {
       )}
       <span className="pill" title={age != null ? `Last price ${age}s ago` : ""}><span className={`dot ${feed.cls}`} />{feed.text}</span>
       <span className={`pill ${s.mode === "live" ? "live" : s.mode === "sample" ? "sample" : ""}`}>{s.mode === "live" ? "LIVE" : s.mode === "paper" ? "Paper" : "Sample"}</span>
-      {s.account && <span className="pill" title={`Connected as ${s.account.label}`}>{s.account.label}</span>}
+      {s.accounts && s.accounts.length > 0 ? (
+        s.accounts.map((a) => (
+          <span key={a.id} className="pill" title={`Connected as ${a.label} (${a.ucc})`}>
+            {a.label}
+          </span>
+        ))
+      ) : s.account ? (
+        <span className="pill" title={`Connected as ${s.account.label}`}>
+          {s.account.label}
+        </span>
+      ) : null}
     </>
   );
 }

@@ -44,6 +44,8 @@ export interface SessionInfo {
   catalog_loading: boolean;
   indices: { label: string; key: string }[];
   account?: { id: string; label: string; ucc: string } | null;
+  accounts?: { id: string; label: string; ucc: string }[];
+  active_account_id?: string;
   limits: {
     max_lots_per_order: number;
     max_order_value: number;
@@ -82,6 +84,8 @@ export interface OrderRow {
   validity: string;
   tag: string;
   open: boolean;
+  account_id?: string;
+  account_label?: string;
 }
 
 export interface TradeRow {
@@ -95,6 +99,8 @@ export interface TradeRow {
   product: string;
   time: string;
   trade_id: string;
+  account_id?: string;
+  account_label?: string;
 }
 
 export interface PositionRow {
@@ -116,6 +122,8 @@ export interface PositionRow {
   pnl: number;
   open: boolean;
   expiry: string | null;
+  account_id?: string;
+  account_label?: string;
 }
 
 export interface Funds {

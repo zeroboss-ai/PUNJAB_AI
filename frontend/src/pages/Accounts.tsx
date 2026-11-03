@@ -183,7 +183,7 @@ export function AccountsPanel() {
             <div className="row wrap">
               {a.connected
                 ? <button className="btn sm" disabled={busy} onClick={() => setDlg({ kind: "disconnect", a })}>Disconnect</button>
-                : <button className="btn primary sm" disabled={busy || !data?.can_connect || connectedAny} title={!data?.can_connect ? "Choose Paper trade under Trading mode first" : connectedAny ? "Disconnect the current account first" : undefined} onClick={() => setDlg({ kind: "connect", a })}>Connect</button>}
+                : <button className="btn primary sm" disabled={busy || !data?.can_connect} title={!data?.can_connect ? "Choose Paper trade under Trading mode first" : undefined} onClick={() => setDlg({ kind: "connect", a })}>Connect</button>}
               {a.editable && <button className="btn sm" disabled={busy || a.connected} onClick={() => setDlg({ kind: "edit", a })}>Edit</button>}
               {!a.default && rows.length > 1 && <button className="btn ghost sm" disabled={busy} onClick={() => run(() => api(`/accounts/${a.id}/default`, { method: "POST", body: {} }), "Default account changed")}>Make default</button>}
               {a.editable && <button className="btn ghost sm" disabled={busy || a.connected} onClick={() => setDlg({ kind: "delete", a })}>Delete</button>}
@@ -193,7 +193,7 @@ export function AccountsPanel() {
         {data && !rows.length && data.readable && <p className="hint">No account saved yet. Add your Kotak Neo account to connect to your own prices and orders.</p>}
         <div className="row wrap">
           <button className="btn" disabled={!data?.readable} onClick={() => setDlg({ kind: "add" })}>+ Add an account</button>
-          <span className="hint">You can save several accounts and connect one at a time. Each needs its own Kotak API access and its own registered static IP.</span>
+          <span className="hint">You can save several accounts and connect them simultaneously. When punching orders, you can select which account to trade on.</span>
         </div>
         <p className="hint">Details are saved on this computer only, encrypted with your dashboard password, and are never shown again after saving. Each account keeps its own trade journal. Switching accounts is blocked while a strategy or the Algo is running. Positions stay open at Kotak when you disconnect.</p>
         {s?.mode === "live" && <div className="notice warn">LIVE mode: double-check which account you connect. Orders will be real.</div>}
@@ -206,10 +206,10 @@ export function AccountsPanel() {
         <Modal title={`Disconnect “${dlg.a.label}”?`} onClose={close} footer={
           <>
             <button className="btn" onClick={close}>Stay connected</button>
-            <button className="btn danger solid" disabled={busy} onClick={() => run(disconnectBroker, "Disconnected")}>Disconnect</button>
+            <button className="btn danger solid" disabled={busy} onClick={() => run(() => disconnectBroker(dlg.a.id), "Disconnected")}>Disconnect</button>
           </>
         }>
-          <p>The terminal logs out of Kotak and stops its price feed. <b>Positions and orders stay as they are at Kotak</b>; this terminal just stops watching them. It is refused while a strategy or the Algo is running.</p>
+          <p>The terminal logs out of Kotak for <b>{dlg.a.label}</b>. <b>Positions and orders stay as they are at Kotak</b>; this terminal just stops watching them. It is refused while a strategy or the Algo is running.</p>
         </Modal>
       )}
       {dlg?.kind === "delete" && (

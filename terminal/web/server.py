@@ -83,6 +83,11 @@ class OrderIn(BaseModel):
     trigger: float = Field(0, ge=0, le=10_000_000)
     validity: Literal["DAY", "IOC"] = "DAY"
     client_id: str = Field("", max_length=64)
+    account_id: str = Field("", max_length=64)
+
+
+class DisconnectIn(BaseModel):
+    account_id: str = Field("", max_length=64)
 
 
 class ModifyIn(BaseModel):
@@ -286,6 +291,7 @@ def create_app(svc: Services, password: str) -> FastAPI:
                 "feed": {"connected": bool(getattr(feed, "connected", False)), "age_s": None if age is None else round(age, 1),
                          "ticks": hub.tick_count, "subscribed": len(hub.wanted())},
                 "catalog_loading": svc.catalog.loading, "indices": svc.index_cards(), "account": svc.account,
+                "accounts": list(svc.accounts.values()), "active_account_id": svc.active_account_id,
                 "limits": {"max_lots_per_order": lim.max_lots_per_order, "max_order_value": lim.max_order_value,
                            "block_after_loss": lim.block_after_loss, "max_daily_loss": svc.cfg.risk.max_daily_loss,
                            "squareoff_buffer_pct": lim.squareoff_buffer_pct},
@@ -313,18 +319,19 @@ def create_app(svc: Services, password: str) -> FastAPI:
         return guarded(go)
 
     @app.post("/api/disconnect", dependencies=[Depends(guard)])
-    def disconnect():
+    def disconnect(body: DisconnectIn = DisconnectIn()):
         def go():
-            svc.disconnect()
+            svc.disconnect(body.account_id.strip() or None)
             return {"ok": True}
         return guarded(go)
 
     # ------------------------------------------------------------------------ saved accounts
     def accounts_view() -> dict:
         v = svc.vault
+        conn_ids = list(svc.accounts.keys())
         return {"ok": True, "mode": svc.mode, "can_connect": svc.mode != "sample", "connected": svc.connected,
                 "active": svc.account["id"] if svc.account else None, "default": v.default_id(), "readable": v.readable, "problem": v.problem,
-                "accounts": v.public(svc.account["id"] if svc.account else None)}
+                "accounts": v.public(connected_ids=conn_ids)}
 
     @app.get("/api/accounts", dependencies=[Depends(auth)])
     def accounts_list():
@@ -340,7 +347,7 @@ def create_app(svc: Services, password: str) -> FastAPI:
     @app.put("/api/accounts/{aid}", dependencies=[Depends(guard)])
     def accounts_update(aid: str, body: AccountIn):
         def go():
-            if svc.account and svc.account["id"] == aid:
+            if aid in svc.accounts or (svc.account and svc.account["id"] == aid):
                 raise RuntimeError("This account is connected. Disconnect it before editing it.")
             svc.vault.update(aid, body.model_dump())
             return accounts_view()
@@ -349,7 +356,7 @@ def create_app(svc: Services, password: str) -> FastAPI:
     @app.delete("/api/accounts/{aid}", dependencies=[Depends(guard)])
     def accounts_delete(aid: str):
         def go():
-            if svc.account and svc.account["id"] == aid:
+            if aid in svc.accounts or (svc.account and svc.account["id"] == aid):
                 raise RuntimeError("This account is connected. Disconnect it before deleting it.")
             svc.vault.delete(aid)
             return accounts_view()
@@ -358,6 +365,12 @@ def create_app(svc: Services, password: str) -> FastAPI:
     @app.post("/api/accounts/{aid}/default", dependencies=[Depends(guard)])
     def accounts_default(aid: str):
         return guarded(lambda: (svc.vault.set_default(aid), accounts_view())[1])
+
+    @app.post("/api/accounts/{aid}/activate", dependencies=[Depends(guard)])
+    def accounts_activate(aid: str):
+        if aid in svc.accounts:
+            svc.active_account_id = aid
+        return {"ok": True, "active": svc.active_account_id}
 
     # --------------------------------------------------------------------------- static IP
     @app.get("/api/network", dependencies=[Depends(auth)])
@@ -490,23 +503,25 @@ def create_app(svc: Services, password: str) -> FastAPI:
         return safe(go)
 
     @app.get("/api/orders", dependencies=[Depends(auth)])
-    def orders():
-        return view(svc.trading.orders_view)
+    def orders(account_id: str = ""):
+        return safe(lambda: svc.trading.orders_view(account_id.strip() or None))
 
     @app.get("/api/trades", dependencies=[Depends(auth)])
-    def trades():
-        return view(svc.trading.trades_view)
+    def trades(account_id: str = ""):
+        return safe(lambda: svc.trading.trades_view(account_id.strip() or None))
 
     @app.get("/api/positions", dependencies=[Depends(auth)])
-    def positions():
-        return view(svc.trading.positions_view)
+    def positions(account_id: str = ""):
+        return safe(lambda: svc.trading.positions_view(account_id.strip() or None))
 
     @app.get("/api/funds", dependencies=[Depends(auth)])
-    def funds():
+    def funds(account_id: str = ""):
         def go():
-            if svc.gateway is None:
+            if not svc.gateway and not svc.gateways:
                 return {"ok": False, "reason": "not_connected"}
-            f = svc.gateway.funds()
+            aid = account_id.strip() if account_id else None
+            gw = svc.get_gateway(aid)
+            f = gw.funds() if gw else None
             return {"ok": f is not None, "funds": f.to_dict() if f else None}
         return safe(go)
 
@@ -519,9 +534,21 @@ def create_app(svc: Services, password: str) -> FastAPI:
             if body.client_id and body.client_id in recent_orders:          # a double-click / retry: same answer, no 2nd order
                 return recent_orders[body.client_id][1]
             with order_lock:
-                res = svc.trading.place(OrderTicket(body.key, body.side, body.lots, body.qty, body.product, body.order_type,
-                                                    body.price, body.trigger, body.validity))
-            out = {"ok": True, **res}
+                target = body.account_id.strip() if body.account_id else None
+                if target == "all":
+                    results = []
+                    aids = list(svc.accounts.keys()) or ["default"]
+                    for aid in aids:
+                        t = OrderTicket(body.key, body.side, body.lots, body.qty, body.product, body.order_type,
+                                        body.price, body.trigger, body.validity)
+                        res = svc.trading.place(t, account_id=aid)
+                        results.append(res)
+                    out = {"ok": True, "results": results, "order_id": results[0]["order_id"] if results else "", "qty": sum(r.get("qty", 0) for r in results)}
+                else:
+                    t = OrderTicket(body.key, body.side, body.lots, body.qty, body.product, body.order_type,
+                                    body.price, body.trigger, body.validity)
+                    res = svc.trading.place(t, account_id=target)
+                    out = {"ok": True, **res}
             if body.client_id:
                 recent_orders[body.client_id] = (now, out)
             return out

@@ -79,7 +79,7 @@ export function Orders() {
                       <td>
                         <div className="cell-name">
                           <b>{o.label || o.symbol}</b>
-                          <span>{o.product} · {OT[o.order_type] ?? o.order_type}{o.tag && o.tag !== "manual" ? ` · ${o.tag}` : ""}</span>
+                          <span>{o.account_label && <span className="chip flat" style={{ marginRight: 4 }}>{o.account_label}</span>}{o.product} · {OT[o.order_type] ?? o.order_type}{o.tag && o.tag !== "manual" ? ` · ${o.tag}` : ""}</span>
                         </div>
                       </td>
                       <td><span className={`chip ${o.side === "B" ? "buy" : "sell"}`}>{o.side === "B" ? "Buy" : "Sell"}</span></td>
@@ -116,7 +116,7 @@ export function Orders() {
                 {trades.map((t, i) => (
                   <tr key={t.trade_id || t.order_id + i}>
                     <td className="muted">{shortTime(t.time)}</td>
-                    <td><b style={{ fontWeight: 600 }}>{t.label || t.symbol}</b></td>
+                    <td><b style={{ fontWeight: 600 }}>{t.label || t.symbol}</b>{t.account_label && <span className="chip flat" style={{ marginLeft: 6 }}>{t.account_label}</span>}</td>
                     <td><span className={`chip ${t.side === "B" ? "buy" : "sell"}`}>{t.side === "B" ? "Buy" : "Sell"}</span></td>
                     <td className="num">{int(t.qty)}</td>
                     <td className="num">{px(t.price)}</td>

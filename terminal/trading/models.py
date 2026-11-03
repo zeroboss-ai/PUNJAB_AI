@@ -40,6 +40,8 @@ class OrderRow:
     time: str = ""
     validity: str = "DAY"
     tag: str = ""
+    account_id: str = ""
+    account_label: str = ""
 
     @property
     def is_open(self) -> bool:
@@ -63,6 +65,8 @@ class TradeRow:
     product: str
     time: str
     trade_id: str = ""
+    account_id: str = ""
+    account_label: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -86,6 +90,8 @@ class PositionRow:
     realised: float
     unrealised: float
     expiry: str | None = None
+    account_id: str = ""
+    account_label: str = ""
 
     @property
     def pnl(self) -> float:

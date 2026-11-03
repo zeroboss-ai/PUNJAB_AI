@@ -78,25 +78,31 @@ class Services:
         self.netip = NetIp(self.store)
         self.session = None                    # KotakSession (paper / live)
         self.vault = AccountVault(Path(cfg.data_dir) / "accounts.enc", env)
-        self.account: dict | None = None       # the saved account that is connected right now (public fields only)
+        self.accounts: dict[str, dict] = {}    # all connected accounts: aid -> {id, label, ucc}
+        self.sessions: dict[str, Any] = {}     # aid -> KotakSession
+        self.gateways: dict[str, Any] = {}     # aid -> KotakGateway / SimBroker
+        self.active_account_id: str = ""
         self._fails: dict[str, tuple[int, float]] = {}
         self._journal_loop_on = False
         self._ip_monitor_on = False
         self.feed = None
-        self.gateway = None
-        self.connected = False
+        self._connected = False
         self._connect_lock = threading.Lock()
         self._kotak_ins = None
         self.alerts = Alerts(env.get("TELEGRAM_BOT_TOKEN", ""), env.get("TELEGRAM_CHAT_ID", ""), self.mode, cfg.alerts)
         m = cfg.manual
         self.trading = TradingService(
-            cfg, self.hub, self.catalog, lambda: self.gateway,
+            cfg, self.hub, self.catalog, lambda aid=None: self.get_gateway(aid),
             ManualLimits(m.max_lots_per_order, m.max_order_value, m.block_after_loss, m.squareoff_buffer_pct),
-            on_panic=self._on_panic)
+            on_panic=self._on_panic,
+            all_gateways_provider=lambda: self.gateways,
+            account_labels_provider=lambda: {aid: a.get("label", aid) for aid, a in self.accounts.items()})
         if self.mode != "sample":
             from .brokers.kotak import KotakInstruments, KotakSession
-            self.session = KotakSession(env)
-            self._kotak_ins = KotakInstruments(self.session, cfg)
+            self._default_session = KotakSession(env)
+            self._kotak_ins = KotakInstruments(self._default_session, cfg)
+        else:
+            self._default_session = None
         self.algo = Controller(cfg, self._build_engine, self.session, ip_check=self._ip_problem)
         self.rules = RuleEngine(self.store, HubMarket(self.hub, self.chain, self.catalog), self.trading, cfg.data_dir, notify=self.alerts.notify)
         self.rules.attach(self.hub)
@@ -117,6 +123,62 @@ class Services:
         commodity.configure(cfg.mcx_close_time)
 
     # ---------------------------------------------------------------- lifecycle
+    @property
+    def account(self) -> dict | None:
+        if self.active_account_id and self.active_account_id in self.accounts:
+            return self.accounts[self.active_account_id]
+        if self.accounts:
+            return next(iter(self.accounts.values()))
+        return None
+
+    @account.setter
+    def account(self, val):
+        pass
+
+    @property
+    def connected(self) -> bool:
+        if self.mode == "sample":
+            return bool(getattr(self, "_connected", True))
+        return bool(self.accounts)
+
+    @connected.setter
+    def connected(self, val: bool):
+        self._connected = bool(val)
+
+    def get_gateway(self, aid: str | None = None):
+        if aid and aid in self.gateways:
+            return self.gateways[aid]
+        if self.active_account_id and self.active_account_id in self.gateways:
+            return self.gateways[self.active_account_id]
+        if self.gateways:
+            return next(iter(self.gateways.values()))
+        return None
+
+    @property
+    def gateway(self):
+        return self.get_gateway()
+
+    @gateway.setter
+    def gateway(self, val):
+        pass
+
+    def get_session(self, aid: str | None = None):
+        if aid and aid in self.sessions:
+            return self.sessions[aid]
+        if self.active_account_id and self.active_account_id in self.sessions:
+            return self.sessions[self.active_account_id]
+        if self.sessions:
+            return next(iter(self.sessions.values()))
+        return getattr(self, "_default_session", None)
+
+    @property
+    def session(self):
+        return self.get_session()
+
+    @session.setter
+    def session(self, val):
+        pass
+
     @property
     def needs_connect(self) -> bool:
         return self.mode != "sample"
@@ -167,12 +229,14 @@ class Services:
         else:
             self._start_ip_monitor()
 
-    def _on_order(self, oid, inst, ticket, qty) -> None:
+    def _on_order(self, oid, inst, ticket, qty, account_id=None) -> None:
         self.journal.note_order(oid, inst, ticket, qty)
         if (ticket.tag or "manual") == "manual":                      # strategies and the algo report their own orders
             kind = {"L": "limit", "MKT": "market", "SL": "SL", "SL-M": "SL-M"}.get(ticket.order_type, ticket.order_type)
             px = f" @ {ticket.price:g}" if ticket.order_type in ("L", "SL") and ticket.price else ""
-            self.alerts.notify("order", f"Order {oid}: {'BUY' if ticket.side == 'B' else 'SELL'} {qty} {inst.label()} {kind}{px}")
+            acct_lbl = self.accounts.get(account_id, {}).get("label") if account_id else (self.account.get("label") if self.account else "")
+            tag = f" [{acct_lbl}]" if acct_lbl else ""
+            self.alerts.notify("order", f"Order {oid}{tag}: {'BUY' if ticket.side == 'B' else 'SELL'} {qty} {inst.label()} {kind}{px}")
 
     def _on_panic(self) -> None:
         self.alerts.notify("error", "STOP ALL pressed: open orders cancelled, strategies stopped, positions being closed.")
@@ -255,13 +319,11 @@ class Services:
         from .trading.kotak_gateway import KotakGateway
         with self._connect_lock:
             aid = account_id or self.vault.default_id()
-            if self.connected:
-                if not aid or (self.account and self.account["id"] == aid):
-                    return
-                raise RuntimeError(f"Already connected as '{self.account['label'] if self.account else 'another account'}'. "
-                                   f"Disconnect first, then connect the other account.")
             if not aid:
                 raise RuntimeError("No account to connect. Add one under Settings, in the Accounts box, or fill in the .env file.")
+            if aid in self.accounts:
+                log.info("Account '%s' is already connected", aid)
+                return
             acct = self.vault.get(aid)
             if self.mode == "live" and not confirm_live:
                 raise RuntimeError(f"LIVE mode: confirm that orders may be REAL on the account '{acct['label']}'.")
@@ -270,9 +332,10 @@ class Services:
                 raise RuntimeError(f"Three login attempts in a row failed for '{acct['label']}'. Wait a minute and check the details first: "
                                    f"Kotak can lock the MPIN after repeated wrong attempts.")
             creds = self.vault.creds(aid)
-            self.session.env = creds
+            from .brokers.kotak import KotakInstruments, KotakSession
+            sess = KotakSession(creds)
             try:
-                self.session.login(totp)
+                sess.login(totp)
             except Exception as e:
                 self._fails[aid] = (n + 1, time.time())
                 msg = scrub(str(e), creds)
@@ -280,36 +343,47 @@ class Services:
                     msg += " (Kotak can lock the MPIN after repeated wrong attempts: check the details before trying again.)"
                 raise RuntimeError(msg) from None
             self._fails.pop(aid, None)
-            seen = self.session.my_ip
+            seen = sess.my_ip
             problem = self.netip.problem_for(seen, acct.get("static_ip", ""), self.cfg.static_ip, acct["label"]) if self.mode == "live" else None
             if problem:
-                self.session.logout()
+                sess.logout()
                 raise RuntimeError(problem)
-            cat = KotakCatalog(self._kotak_ins)
-            for c in self.index_cards():
-                seg, tok = c["key"].split("|", 1)
-                cat.register(Instrument(c["key"], seg, tok, c["label"], c["label"], "INDEX", tick=0.05))
-            self.catalog.set(cat)
-            feed = KotakFeed(self.session, self.cfg)
-            feed.on_quote = self.hub.update
-            feed.start(lambda t: None)
-            self.feed = feed
-            self.hub.attach_feed(feed)
-            self.hub.want("dashboard", [c["key"] for c in self.index_cards()])
-            self.chain.set_provider(KotakChainProvider(self.session, self.catalog))
+
+            if not self.feed:
+                self._kotak_ins = KotakInstruments(sess, self.cfg)
+                cat = KotakCatalog(self._kotak_ins)
+                for c in self.index_cards():
+                    seg, tok = c["key"].split("|", 1)
+                    cat.register(Instrument(c["key"], seg, tok, c["label"], c["label"], "INDEX", tick=0.05))
+                self.catalog.set(cat)
+                feed = KotakFeed(sess, self.cfg)
+                feed.on_quote = self.hub.update
+                feed.start(lambda t: None)
+                self.feed = feed
+                self.hub.attach_feed(feed)
+                self.hub.want("dashboard", [c["key"] for c in self.index_cards()])
+                from .market.chain import KotakChainProvider
+                self.chain.set_provider(KotakChainProvider(sess, self.catalog))
+                self._seed_defaults()
+                self.charts.start()
+                cat.warm()
+
             if self.mode == "live":
-                self.gateway = KotakGateway(self.session, self.catalog, self.hub)
+                from .trading.kotak_gateway import KotakGateway
+                gw = KotakGateway(sess, self.catalog, self.hub)
             else:
-                self.gateway = SimBroker(self.hub, self.catalog, self.cfg.manual.paper_capital, self.cfg.data_dir)
-            self.journal.ns = self.vault.journal_namespace(aid, self.mode)
-            self._seed_defaults()
-            self.charts.start()
-            cat.warm()
-            self.account = {"id": aid, "label": acct["label"], "ucc": acct["ucc"][:1] + "•••" + acct["ucc"][-2:]}
+                gw = SimBroker(self.hub, self.catalog, self.cfg.manual.paper_capital, self.cfg.data_dir)
+
+            self.sessions[aid] = sess
+            self.gateways[aid] = gw
+            self.accounts[aid] = {"id": aid, "label": acct["label"], "ucc": acct["ucc"][:1] + "•••" + acct["ucc"][-2:]}
+            if not self.active_account_id:
+                self.active_account_id = aid
             self.connected = True
+            self.journal.ns = self.vault.journal_namespace(aid, self.mode)
             self.store.set("accounts.last", aid)
             self._start_journal_loop()
-            log.info("connected to Kotak as '%s' in %s mode", acct["label"], self.mode)
+            log.info("connected to Kotak as '%s' in %s mode (total %d accounts connected)", acct["label"], self.mode, len(self.accounts))
 
     # ------------------------------------------------------------------ paper <-> real switch
     def _localhost(self) -> bool:
@@ -424,12 +498,12 @@ class Services:
             self.alerts.notify("info", f"Trading mode is now {'REAL: orders go to your Kotak account' if mode == 'live' else 'PAPER: simulated orders'}.")
             return self.mode_info()
 
-    def disconnect(self) -> None:
-        """Log out of Kotak so another account can be connected. Refused while anything is trading."""
+    def disconnect(self, account_id: str | None = None) -> None:
+        """Log out of Kotak so account(s) can be disconnected. Refused while anything is trading."""
         if self.mode == "sample":
             raise RuntimeError("Sample mode has no broker account.")
         with self._connect_lock:
-            if not self.connected:
+            if not self.connected and not self.accounts:
                 return
             if self.rules.running():
                 raise RuntimeError("Stop your running strategies first (My strategies), then disconnect.")
@@ -439,22 +513,34 @@ class Services:
                 self.journal.sync()
             except Exception:
                 log.exception("journal sync before disconnect")
-            try:
-                if self.feed:
-                    self.feed.stop()
-            except Exception:
-                log.exception("feed stop")
-            self.connected = False
-            self.gateway = None
-            self.feed = None
-            try:
-                self.session.logout()
-            except Exception:
-                log.exception("logout")
-            who = self.account["label"] if self.account else "account"
-            self.account = None
-            self.journal.ns = None
-            log.info("disconnected from Kotak ('%s')", who)
+
+            target_aids = [account_id] if account_id and account_id in self.accounts else list(self.accounts.keys())
+            for aid in target_aids:
+                sess = self.sessions.pop(aid, None)
+                self.gateways.pop(aid, None)
+                acct_info = self.accounts.pop(aid, None)
+                lbl = acct_info.get("label", aid) if acct_info else aid
+                if sess:
+                    try:
+                        sess.logout()
+                    except Exception:
+                        log.exception("logout %s", lbl)
+                log.info("disconnected from Kotak ('%s')", lbl)
+
+            if not self.accounts:
+                try:
+                    if self.feed:
+                        self.feed.stop()
+                except Exception:
+                    log.exception("feed stop")
+                self.connected = False
+                self.feed = None
+                self.active_account_id = ""
+                self.journal.ns = None
+            else:
+                if self.active_account_id not in self.accounts:
+                    self.active_account_id = next(iter(self.accounts.keys()))
+                self.connected = True
 
     def shutdown(self) -> None:
         self._stopping.set()

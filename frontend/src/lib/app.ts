@@ -72,8 +72,8 @@ export async function connectBroker(totp: string, accountId = "", confirmLive = 
   await refreshSession();
 }
 
-export async function disconnectBroker() {
-  await api("/disconnect", { method: "POST", body: {} });
+export async function disconnectBroker(accountId = "") {
+  await api("/disconnect", { method: "POST", body: { account_id: accountId } });
   await refreshSession();
 }
 
@@ -128,6 +128,7 @@ export interface TicketReq {
   tick: number;
   product?: string;
   modify?: OrderRow;
+  account_id?: string;
 }
 export const ticket = createStore<TicketReq | null>(null);
 export const openTicket = (r: TicketReq) => ticket.set(r);

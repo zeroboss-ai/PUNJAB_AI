@@ -58,7 +58,7 @@ export function Positions() {
     }
   }
 
-  const open_ = (p: PositionRow, side: "B" | "S") => openTicket({ key: p.key, label: p.label, side, lot: p.lot, tick: 0.05, product: p.product });
+  const open_ = (p: PositionRow, side: "B" | "S") => openTicket({ key: p.key, label: p.label, side, lot: p.lot, tick: 0.05, product: p.product, account_id: p.account_id });
 
   return (
     <>
@@ -98,8 +98,8 @@ export function Positions() {
               </thead>
               <tbody>
                 {rows.map((p) => (
-                  <tr key={p.key + p.product} className={p.open ? "" : "dim"}>
-                    <td><div className="cell-name"><b>{p.label}</b><span>{p.product}{!p.open ? " · closed" : ""}</span></div></td>
+                  <tr key={p.key + p.product + (p.account_id || "")} className={p.open ? "" : "dim"}>
+                    <td><div className="cell-name"><b>{p.label}</b><span>{p.account_label && <span className="chip flat" style={{ marginRight: 4 }}>{p.account_label}</span>}{p.product}{!p.open ? " · closed" : ""}</span></div></td>
                     <td className="num" style={{ fontWeight: 600 }}>{p.net_qty === 0 ? "0" : lotsLabel(p.net_qty, p.lot)}</td>
                     <td className="num">{p.open ? px(p.avg_price) : dash}</td>
                     <td className="num">{px(p.ltp)}</td>
