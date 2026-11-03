@@ -38,7 +38,7 @@ function Ticket({ req }: { req: TicketReq }) {
   const [side, setSide] = useState<"B" | "S">(req.side);
   const [lots, setLots] = useState(m ? Math.max(1, Math.round(m.qty / Math.max(m.lot, 1))) : 1);
   const [qty, setQty] = useState(m ? m.qty : 1);
-  const [product, setProduct] = useState(m?.product ?? req.product ?? (deriv ? "MIS" : "MIS"));
+  const [product, setProduct] = useState(m?.product ?? req.product ?? (deriv ? "NRML" : "CNC"));
   const [otype, setOtype] = useState<OType>((m?.order_type as OType) ?? "L");
   const [price, setPrice] = useState<string>(m && m.price ? String(m.price) : "");
   const [trigger, setTrigger] = useState<string>(m && m.trigger ? String(m.trigger) : "");

@@ -489,7 +489,7 @@ def send_order(client, *, segment: str, symbol: str, side: str, qty: int, order_
     kw = dict(exchange_segment=segment, product=product, price="0" if mkt else _fmt(price), order_type=order_type,
               quantity=str(int(qty)), validity=validity, trading_symbol=symbol, transaction_type=side, amo="NO",
               disclosed_quantity="0", trigger_price=_fmt(trigger) if trigger else "0")
-    if tag and "tag" in inspect.signature(fn).parameters:        # `tag` exists in 3.0.9+
+    if tag and tag != "manual" and "tag" in inspect.signature(fn).parameters:        # `tag` exists in 3.0.9+
         kw["tag"] = tag[:20]
     resp = fn(**kw)
     oid = _find(resp, ("nOrdNo",)) if isinstance(resp, dict) else None
@@ -497,7 +497,7 @@ def send_order(client, *, segment: str, symbol: str, side: str, qty: int, order_
     if err is None and oid is not None:
         return str(oid)
     log.warning("place_order failed. payload=%s response=%s", kw, resp)
-    text = f"place_order: {err or 'reply had no order number'}"
+    text = f"place_order: {err or 'reply had no order number'} (resp: {resp})"
     if resp is None or (isinstance(resp, dict) and ("Error" in resp or "Error Message" in resp) and not _definite(resp)):
         raise OrderUnknown(text)                                 # timeout etc.: may or may not have gone through
     raise OrderError(text)
