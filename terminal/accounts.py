@@ -191,19 +191,46 @@ class AccountVault:
         except OSError:
             pass
 
-    # ---- the account that may be written in .env
-    def _env_account(self) -> dict[str, Any] | None:
+    # ---- the account(s) that may be written in .env or environment variables
+    def _env_accounts(self) -> list[dict[str, Any]]:
         e = self.env
-        vals = {k: str(e.get(n, "") or "").strip() for k, n in _ENV_NAMES.items()}
-        if not all(vals[k] for k in ("consumer_key", "mobile", "ucc", "mpin")):
-            return None
-        return {"id": ENV_ID, "label": ".env file", **vals, "ucc": vals["ucc"].upper(), "static_ip": "", "source": "env"}
+        out = []
+        vals1 = {k: str(e.get(n, "") or "").strip() for k, n in _ENV_NAMES.items()}
+        if all(vals1[k] for k in ("consumer_key", "mobile", "ucc", "mpin")):
+            out.append({"id": ENV_ID, "label": ".env file", **vals1, "ucc": vals1["ucc"].upper(), "static_ip": "", "source": "env"})
+
+        for idx in range(2, 10):
+            for pfx in (f"NEO_{idx}_", f"NEO_ACCOUNT_{idx}_", f"ACCOUNT_{idx}_"):
+                ck = str(e.get(f"{pfx}CONSUMER_KEY", "") or "").strip()
+                mob = str(e.get(f"{pfx}MOBILE_NUMBER", "") or e.get(f"{pfx}MOBILE", "") or "").strip()
+                ucc = str(e.get(f"{pfx}UCC", "") or "").strip()
+                mpin = str(e.get(f"{pfx}MPIN", "") or "").strip()
+                totp_sec = str(e.get(f"{pfx}TOTP_SECRET", "") or "").strip()
+                lbl = str(e.get(f"{pfx}LABEL", "") or f"Account {idx} (.env)").strip()
+                if ck and mob and ucc and mpin:
+                    out.append({
+                        "id": f"env_{idx}",
+                        "label": lbl,
+                        "consumer_key": ck,
+                        "mobile": mob,
+                        "ucc": ucc.upper(),
+                        "mpin": mpin,
+                        "totp_secret": totp_sec,
+                        "static_ip": "",
+                        "source": "env"
+                    })
+                    break
+        return out
+
+    def _env_account(self) -> dict[str, Any] | None:
+        accts = self._env_accounts()
+        return accts[0] if accts else None
 
     def _all(self) -> list[dict[str, Any]]:
         accts = [dict(a, source="saved") for a in self._data["accounts"]] if self.readable else []
-        env = self._env_account()
-        if env:
-            accts.append(env)
+        for env_acct in self._env_accounts():
+            if not any(a["id"] == env_acct["id"] for a in accts):
+                accts.append(env_acct)
         return accts
 
     # ---- reading

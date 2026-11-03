@@ -210,11 +210,31 @@ class KotakSession:
             import pyotp
             totp = pyotp.TOTP(secret).now()
         self.logged_in = False
-        client = NeoAPI(consumer_key=self._need("NEO_CONSUMER_KEY"), environment="prod")
-        r1 = client.totp_login(mobile_number=self._need("NEO_MOBILE_NUMBER"), ucc=self._need("NEO_UCC"),
-                               totp=str(totp).strip())
+        client = NeoAPI(consumer_key=self._need("NEO_CONSUMER_KEY").strip(), environment="prod")
+        mob = self._need("NEO_MOBILE_NUMBER").strip()
+        ucc = self._need("NEO_UCC").strip().upper()
+        clean_digits = re.sub(r"\D", "", mob)
+        if len(clean_digits) == 12 and clean_digits.startswith("91"):
+            clean_digits = clean_digits[2:]
+
+        candidates = [mob]
+        if clean_digits:
+            for alt in (clean_digits, f"+91{clean_digits}", f"91{clean_digits}"):
+                if alt not in candidates:
+                    candidates.append(alt)
+
+        r1 = None
+        for m in candidates:
+            r1 = client.totp_login(mobile_number=m, ucc=ucc, totp=str(totp).strip())
+            data = r1.get("data") if isinstance(r1, dict) else None
+            if isinstance(data, dict) and str(data.get("status", "")).lower() == "success":
+                break
+            prob = _login_problem(r1).lower()
+            if "not found" not in prob and "mobile" not in prob:
+                break  # another error like wrong TOTP, don't keep trying phone formats
+
         _check_login(r1, "TOTP login", need_trade=False)
-        r2 = client.totp_validate(mpin=self._need("NEO_MPIN"))
+        r2 = client.totp_validate(mpin=self._need("NEO_MPIN").strip())
         _check_login(r2, "MPIN validation", need_trade=True)
         self.client, self.logged_in = client, True
         try:
