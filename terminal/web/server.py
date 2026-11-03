@@ -260,6 +260,19 @@ def create_app(svc: Services, password: str) -> FastAPI:
     def health_check():
         return {"ok": True, "status": "healthy", "mode": svc.mode}
 
+    @app.get("/api/logs", dependencies=[Depends(auth)])
+    def read_tail_logs(lines: int = 50):
+        try:
+            import glob
+            log_files = sorted(glob.glob("logs/terminal-*.log"))
+            if not log_files:
+                return {"ok": False, "reason": "no log files found"}
+            with open(log_files[-1], "r", encoding="utf-8", errors="ignore") as f:
+                content = f.readlines()
+            return {"ok": True, "file": log_files[-1], "lines": content[-lines:]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     @app.get("/api/session", dependencies=[Depends(auth)])
     def session_info():
         try:
