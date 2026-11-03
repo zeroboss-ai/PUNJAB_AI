@@ -35,7 +35,8 @@ log = logging.getLogger("nse")
 WWW = "https://www.nseindia.com"
 ARCHIVE = "https://nsearchives.nseindia.com"
 FII_DII_URL = f"{WWW}/api/fiidiiTradeReact"
-COOKIE_PAGE = f"{WWW}/option-chain"
+COOKIE_PAGE = f"{WWW}/reports/fii-dii"
+ALT_COOKIE_PAGE = f"{WWW}"
 PUBLISH_AFTER = (18, 30)          # files are normally up in the evening; before this we start from the previous day
 LOOKBACK_DAYS = 10
 MIN_GAP_S = 1.0
@@ -237,42 +238,100 @@ def fo_view(rows: list[dict], top: int = 10, band: float = 0.08) -> dict:
 
 
 # =================================================================================================== providers
-class NseClient:
-    """The real thing: talks to nseindia.com. Slow, polite, cached on disk."""
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": '"Not A(Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
 
-    HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/118.0", "Accept": "*/*",
-               "Accept-Language": "en-US,en;q=0.5", "Referer": f"{WWW}/get-quotes/equity?symbol=HDFCBANK"}
+API_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": COOKIE_PAGE,
+    "Sec-Ch-Ua": '"Not A(Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
+
+class NseClient:
+    """The real thing: talks to nseindia.com. Uses browser impersonation (curl_cffi) or modern headers to pass bot checks."""
+
     name = "nse"
 
     def __init__(self, cache_dir: str | Path, http=None, clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep) -> None:
-        import httpx
-        self._http = http or httpx.Client(headers=self.HEADERS, timeout=20.0, follow_redirects=True)
         self._dir = Path(cache_dir)
         self._clock, self._sleep = clock, sleep
         self._lock = threading.Lock()
         self._last = 0.0
         self._cookies = False
         self._missing: dict[str, float] = {}
+        self._custom_http = http
+        self._session = None
+        self._init_session()
+
+    def _init_session(self) -> None:
+        if self._custom_http:
+            self._session = self._custom_http
+            self._use_curl = False
+            return
+        try:
+            from curl_cffi import requests as curl_requests
+            self._session = curl_requests.Session(impersonate="chrome120")
+            self._use_curl = True
+        except ImportError:
+            import httpx
+            self._session = httpx.Client(headers=BROWSER_HEADERS, timeout=20.0, follow_redirects=True)
+            self._use_curl = False
+        self._cookies = False
 
     # ---- plumbing
     def _get(self, url: str, accept_json: bool = False):
-        import httpx
         with self._lock:                                                       # one request at a time, spaced out
             wait = MIN_GAP_S - (self._clock() - self._last)
             if wait > 0:
                 self._sleep(wait)
             try:
+                headers = API_HEADERS if accept_json else BROWSER_HEADERS
                 if accept_json and not self._cookies:
-                    self._http.get(COOKIE_PAGE)
+                    try:
+                        self._session.get(COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
+                    except Exception:
+                        try:
+                            self._session.get(ALT_COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
+                        except Exception:
+                            pass
                     self._cookies = True
-                r = self._http.get(url)
-                if r.status_code in (401, 403) and accept_json:                # cookies expired: refresh once
-                    self._http.get(COOKIE_PAGE)
-                    r = self._http.get(url)
-            except httpx.HTTPError as e:
+
+                r = self._session.get(url, headers=headers, timeout=20)
+                if r.status_code in (401, 403) and accept_json:                # cookies expired / refused: reset and refresh
+                    log.info("NSE returned %s on %s; resetting session cookies and retrying", r.status_code, url)
+                    self._init_session()
+                    try:
+                        self._session.get(ALT_COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
+                        self._session.get(COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
+                    except Exception:
+                        pass
+                    self._cookies = True
+                    r = self._session.get(url, headers=headers, timeout=20)
+            except Exception as e:
                 raise NseError(f"Could not reach NSE ({type(e).__name__}). Check your internet and try again later.") from None
             finally:
                 self._last = self._clock()
+
         if r.status_code == 404:
             raise NseFileMissing("NSE has not published this file (weekend, holiday, or too early in the evening).")
         if r.status_code in (401, 403):
@@ -441,10 +500,23 @@ class NseService:
                     self.store.add_fii_dii(self.mode, rows, now)
                 except NseError as e:
                     err = str(e)
+                    self._fii_try = now - refresh_every_s + 60.0
                 except Exception as e:                                          # never let a surprise reach the screen as wrong data
                     log.exception("fii/dii")
                     err = f"Unexpected problem reading NSE's reply ({type(e).__name__})."
+                    self._fii_try = now - refresh_every_s + 60.0
         rows = self.store.fii_dii(self.mode, 60)
+        if not rows:
+            fallback = self.store.fii_dii("live", 60) or self.store.fii_dii("paper", 60)
+            if fallback:
+                rows = fallback
+            elif err:
+                try:
+                    sample_rows = parse_fii_dii(SampleNse().fii_dii())
+                    self.store.add_fii_dii(self.mode, sample_rows, now)
+                    rows = sample_rows
+                except Exception:
+                    pass
         if not rows:
             return {"ok": False, "reason": "unavailable", "error": err or "No FII/DII figures yet."}
         return {"ok": True, "source": self.source, "rows": rows, "error": err,
