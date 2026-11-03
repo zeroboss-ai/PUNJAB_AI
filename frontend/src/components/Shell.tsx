@@ -5,6 +5,7 @@ import { clock, pct, px, signed, tone } from "../lib/format";
 import { useQuote, useWant, wsState } from "../lib/quotes";
 import { useStore } from "../lib/store";
 import { IconAlert, IconLogout, IconMoon, IconSun, Logo } from "./Icons";
+import { InstallPwaButton } from "./InstallPwa";
 import { MobileNav, useIsPhone } from "./MobileNav";
 import { isActive, NAV } from "./nav";
 import { Modal } from "./ui";
@@ -180,6 +181,7 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
           <div className="topbar-right">
             <Clock />
             <StatusPills />
+            <InstallPwaButton />
             <PanicButton />
             <button className="btn ghost icon sm" onClick={() => applyTheme(theme === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} title="Switch theme">
               {theme === "dark" ? <IconSun /> : <IconMoon />}
