@@ -20,12 +20,18 @@
   <body>
     <div id="root"></div>
     <script>
+      // Clear any legacy service workers & stale caches so Cloudflare verification and live feeds never conflict
       if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js").catch((err) => {
-            console.warn("PWA ServiceWorker registration failed: ", err);
-          });
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          for (const registration of registrations) {
+            registration.unregister();
+          }
         });
+        if (window.caches) {
+          caches.keys().then((names) => {
+            for (const name of names) caches.delete(name);
+          });
+        }
       }
     </script>
   </body>
