@@ -2189,10 +2189,10 @@ progress {
     display: none !important;
   }
   .show-on-mobile {
-    display: block !important;
+    display: block;
   }
   .show-on-mobile-flex {
-    display: flex !important;
+    display: flex;
   }
 
   /* Compact Mobile Topbar */
@@ -2262,32 +2262,46 @@ progress {
 
   /* Quick Mobile Shortcuts */
   .m-shortcuts {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
     gap: 8px;
-    margin-bottom: 14px;
+    margin: 4px 0 16px;
+    width: 100%;
   }
   .m-shortcut-btn {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 10px 6px;
+    gap: 6px;
+    padding: 10px 4px;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 8px;
-    font-size: 11.5px;
+    border-radius: 10px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text);
     cursor: pointer;
     text-align: center;
+    width: 100%;
+    min-width: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    transition: background 0.15s, transform 0.1s;
   }
   .m-shortcut-btn:active {
     background: var(--hover);
+    transform: scale(0.96);
   }
   .m-shortcut-icon {
-    font-size: 18px;
+    font-size: 20px;
+    line-height: 1;
+  }
+  .m-shortcut-btn span:last-child {
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+    word-break: break-word;
   }
 
   /* Mobile Watchlist */
@@ -2400,7 +2414,8 @@ progress {
 
 @media (min-width: 721px) {
   .show-on-mobile,
-  .show-on-mobile-flex {
+  .show-on-mobile-flex,
+  .m-shortcuts {
     display: none !important;
   }
 }
