@@ -17,8 +17,8 @@ from .models import Instrument
 
 log = logging.getLogger("catalog")
 
-CASH = ("nse_cm", "bse_cm")
-DERIV = ("nse_fo", "bse_fo", "mcx_fo")
+CASH = ("nse_cm",)
+DERIV = ("nse_fo", "mcx_fo")
 MCX = cm.SEGMENT
 
 
@@ -95,8 +95,8 @@ class KotakCatalog(Catalog):
         self._frames: dict[str, Any] = {}
         self._loading: set[str] = set()
 
-    # background warm-up so the first search is instant
-    def warm(self, segments=CASH + DERIV) -> None:
+    # background warm-up so the first search is instant (warming only cash & commodities to keep memory tiny)
+    def warm(self, segments=("nse_cm", "mcx_fo")) -> None:
         def run():
             self.status = "loading"
             for seg in segments:
@@ -210,9 +210,11 @@ class KotakCatalog(Catalog):
         name, extra = words[0], words[1:]
         out: list[Instrument] = []
         out.extend(self._search_mcx(words, want_opt, nums))
-        segs = tuple(x for x in (DERIV if (want_opt or nums) else CASH + DERIV) if x != MCX)
+        if out and not (want_opt or nums):
+            return out[: limit * 4]
+        segs = ("nse_fo",) if (want_opt or nums) else CASH
         for seg in segs:
-            if seg not in self._frames and seg in DERIV and not (want_opt or nums) and len(name) < 3:
+            if seg not in self._frames and seg == "nse_fo" and not (want_opt or nums) and len(name) < 3:
                 continue                                        # don't download huge F&O files for a 1-2 letter search
             try:
                 df = self._df(seg)
