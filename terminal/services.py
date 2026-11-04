@@ -367,7 +367,6 @@ class Services:
                 self.chain.set_provider(KotakChainProvider(sess, self.catalog))
                 self._seed_defaults()
                 self.charts.start()
-                cat.warm()
 
             if self.mode == "live":
                 from .trading.kotak_gateway import KotakGateway

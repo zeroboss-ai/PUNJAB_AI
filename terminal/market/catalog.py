@@ -95,17 +95,8 @@ class KotakCatalog(Catalog):
         self._frames: dict[str, Any] = {}
         self._loading: set[str] = set()
 
-    # background warm-up so the first search is instant (warming only cash & commodities to keep memory tiny)
-    def warm(self, segments=("nse_cm", "mcx_fo")) -> None:
-        def run():
-            self.status = "loading"
-            for seg in segments:
-                try:
-                    self._df(seg)
-                except Exception as e:
-                    log.warning("could not load %s scrip master: %r", seg, e)
-            self.status = "ready"
-        threading.Thread(target=run, name="catalog-warm", daemon=True).start()
+    def warm(self, segments=None) -> None:
+        pass
 
     def _df(self, seg: str):
         df = self._frames.get(seg)

@@ -266,10 +266,20 @@ def create_app(svc: Services, password: str) -> FastAPI:
             return None
         return st["message"] if st["bad"] or st["verdict"] == "unset" else None
 
+    _server_start_time = time.time()
+
     @app.get("/api/health")
     @app.get("/healthz")
     def health_check():
-        return {"ok": True, "status": "healthy", "mode": svc.mode}
+        return {
+            "ok": True,
+            "status": "healthy",
+            "mode": svc.mode,
+            "pid": os.getpid(),
+            "uptime_s": round(time.time() - _server_start_time, 1),
+            "connected": svc.connected,
+            "accounts": len(svc.accounts),
+        }
 
     @app.get("/api/logs", dependencies=[Depends(auth)])
     def read_tail_logs(lines: int = 50):
