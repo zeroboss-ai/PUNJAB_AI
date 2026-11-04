@@ -459,8 +459,13 @@ def create_app(svc: Services, password: str) -> FastAPI:
     @app.get("/api/search", dependencies=[Depends(auth)])
     def search(q: str = "", limit: int = 25):
         q = q.strip()[:60]
-        res = svc.catalog.search(q, max(1, min(limit, 40))) if len(q) >= 1 else []
-        return {"loading": svc.catalog.loading and not res, "results": [i.to_dict() for i in res]}
+        try:
+            res = svc.catalog.search(q, max(1, min(limit, 40))) if len(q) >= 1 else []
+            loading = getattr(svc.catalog, "loading", False) and not res
+            return {"loading": bool(loading), "results": [i.to_dict() for i in res if i]}
+        except Exception as e:
+            log.warning("search error for %r: %r", q, e)
+            return {"loading": False, "results": []}
 
     # ---------------------------------------------------------------------- watchlists
     @app.get("/api/watchlists", dependencies=[Depends(auth)])

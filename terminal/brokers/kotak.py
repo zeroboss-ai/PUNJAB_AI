@@ -22,6 +22,7 @@ import inspect
 import io
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -79,7 +80,8 @@ def _rows(resp: Any) -> list[dict]:
 
 def _f(v: Any, default: float = 0.0) -> float:
     try:
-        return float(v)
+        f = float(v)
+        return default if math.isnan(f) else f
     except (TypeError, ValueError):
         return default
 
@@ -288,11 +290,13 @@ class KotakInstruments:
         key = (segment, now_ist().date())
         if key in self._cache:
             return self._cache[key]
-        url = self._csv_url(self.s.client.scrip_master(exchange_segment=segment), segment)
+        client = getattr(self.s, "client", self.s)
+        resp = client.scrip_master(exchange_segment=segment)
+        url = self._csv_url(resp, segment)
         df = pd.read_csv(io.BytesIO(self._download(url)), low_memory=False,
                          usecols=lambda c: str(c).strip().rstrip(";").strip().lower() in _SCRIP_COLS)   # keep memory small
         df.columns = [str(c).strip().rstrip(";").strip().lower() for c in df.columns]   # "dStrikePrice;" -> dstrikeprice
-        self._cache = {key: df}
+        self._cache[key] = df
         return df
 
     def candidates(self, instrument: str, ref_price: float, window: int, expiry_offset: int = 0):

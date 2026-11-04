@@ -120,20 +120,29 @@ class KotakCatalog(Catalog):
                 return n
         return None
 
-    def _row_to_inst(self, seg: str, r, c: dict) -> Instrument:
-        token = str(int(_f(r[c["tok"]])))
-        tick = max(_f(r.get(c["tick"])) / 100.0, 0.01) if c["tick"] else 0.05
-        lot = max(int(_f(r.get(c["lot"]), 1)), 1) if c["lot"] else 1
-        if seg in CASH:
-            return Instrument(f"{seg}|{token}", seg, token, str(r[c["trd"]]).strip(), str(r[c["name"]]).strip(), "EQ",
-                              lot=1, tick=tick, desc=str(r.get(c["desc"]) or "") if c["desc"] else "")
-        kind = _kind_from_row(r[c["opt"]])
-        exp = parse_expiry(r[c["exp"]], now_ist().date(), seg)
-        strike = _f(r[c["strike"]]) / 100.0 if kind in ("CE", "PE") else None
-        name = str(r[c["name"]]).strip()
-        desc = cm.label_of(name) if seg == MCX else ""
-        return Instrument(f"{seg}|{token}", seg, token, str(r[c["trd"]]).strip(), name, kind,
-                          lot=lot, tick=tick, expiry=exp, strike=strike, desc=desc)
+    def _row_to_inst(self, seg: str, r, c: dict) -> Instrument | None:
+        try:
+            tok_col = c.get("tok")
+            if not tok_col:
+                return None
+            tok_val = _f(r.get(tok_col))
+            if tok_val <= 0:
+                return None
+            token = str(int(tok_val))
+            tick = max(_f(r.get(c.get("tick"))) / 100.0, 0.01) if c.get("tick") else 0.05
+            lot = max(int(_f(r.get(c.get("lot")), 1)), 1) if c.get("lot") else 1
+            if seg in CASH:
+                return Instrument(f"{seg}|{token}", seg, token, str(r.get(c.get("trd")) or "").strip(), str(r.get(c.get("name")) or "").strip(), "EQ",
+                                  lot=1, tick=tick, desc=str(r.get(c.get("desc")) or "") if c.get("desc") else "")
+            kind = _kind_from_row(r.get(c.get("opt")))
+            exp = parse_expiry(r.get(c.get("exp")), now_ist().date(), seg) if c.get("exp") else None
+            strike = _f(r.get(c.get("strike"))) / 100.0 if kind in ("CE", "PE") and c.get("strike") else None
+            name = str(r.get(c.get("name")) or "").strip()
+            desc = cm.label_of(name) if seg == MCX else ""
+            return Instrument(f"{seg}|{token}", seg, token, str(r.get(c.get("trd")) or "").strip(), name, kind,
+                              lot=lot, tick=tick, expiry=exp, strike=strike, desc=desc)
+        except Exception:
+            return None
 
     def _cols(self, df) -> dict:
         return {"tok": self._col(df, "psymbol"), "trd": self._col(df, "ptrdsymbol"), "name": self._col(df, "psymbolname"),
@@ -220,25 +229,32 @@ class KotakCatalog(Catalog):
                 m &= opt.isin(["CE", "PE", "XX"])
                 if want_opt:
                     m &= opt.eq("XX" if want_opt == "FUT" else want_opt)
-                if nums:
-                    strikes = df[c["strike"]].astype(float) / 100.0
+                if nums and c.get("strike"):
+                    import pandas as pd
+                    strikes = pd.to_numeric(df[c["strike"]], errors="coerce").fillna(0.0) / 100.0
                     sm = False
                     for n in nums:
-                        sm = sm | strikes.eq(float(n))
+                        try:
+                            sm = sm | strikes.eq(float(n))
+                        except Exception:
+                            pass
                     m &= sm
             for t in extra:
                 m &= df[c["trd"]].astype(str).str.upper().str.contains(re.escape(t), na=False)
             sub = df[m]
             if seg in DERIV and not sub.empty:
-                insts = [self._row_to_inst(seg, r, c) for _, r in sub.head(4000).iterrows()]
+                insts = [inst for _, r in sub.head(4000).iterrows() if (inst := self._row_to_inst(seg, r, c)) is not None]
                 today = now_ist().date()
                 insts = [i for i in insts if i.expiry is None or i.expiry >= today]
                 exps = sorted({i.expiry for i in insts if i.expiry})[:3]        # nearest three expiries only
                 out.extend(i for i in insts if i.expiry in exps or i.expiry is None)
             else:
-                if c["grp"] and seg == "nse_cm":
+                if c.get("grp") and seg == "nse_cm":
                     sub = sub[sub[c["grp"]].astype(str).isin(["EQ", "BE", "SM", "ST", "BZ", "IV"])]
-                out.extend(self._row_to_inst(seg, r, c) for _, r in sub.head(60).iterrows())
+                for _, r in sub.head(60).iterrows():
+                    inst = self._row_to_inst(seg, r, c)
+                    if inst is not None:
+                        out.append(inst)
         return out[: limit * 4]
 
 
@@ -281,17 +297,21 @@ class KotakCatalog(Catalog):
             m &= ~is_opt
         else:
             m &= ~is_opt                                          # plain name: the futures; options come with CE / PE / a strike
-        if nums:
-            strikes = df[c["strike"]].astype(float) / 100.0
+        if nums and c.get("strike"):
+            import pandas as pd
+            strikes = pd.to_numeric(df[c["strike"]], errors="coerce").fillna(0.0) / 100.0
             sm = False
             for n in nums:
-                sm = sm | strikes.eq(float(n))
+                try:
+                    sm = sm | strikes.eq(float(n))
+                except Exception:
+                    pass
             m &= sm
         sub = df[m]
         if sub.empty:
             return []
         today = now_ist().date()
-        insts = [self._row_to_inst(MCX, r, c) for _, r in sub.head(4000).iterrows()]
+        insts = [inst for _, r in sub.head(4000).iterrows() if (inst := self._row_to_inst(MCX, r, c)) is not None]
         insts = [i for i in insts if i.expiry is None or i.expiry >= today]
         if want_opt in ("CE", "PE") or nums:
             exps = sorted({i.expiry for i in insts if i.expiry})[:3]
