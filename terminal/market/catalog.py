@@ -17,8 +17,8 @@ from .models import Instrument
 
 log = logging.getLogger("catalog")
 
-CASH = ("nse_cm",)
-DERIV = ("nse_fo", "mcx_fo")
+CASH = ("nse_cm", "bse_cm")
+DERIV = ("nse_fo", "bse_fo", "mcx_fo")
 MCX = cm.SEGMENT
 
 
@@ -203,9 +203,14 @@ class KotakCatalog(Catalog):
         out.extend(self._search_mcx(words, want_opt, nums))
         if out and not (want_opt or nums):
             return out[: limit * 4]
-        segs = ("nse_fo",) if (want_opt or nums) else CASH
+        if name in ("SENSEX", "BANKEX"):
+            segs = ("bse_fo",)
+        elif want_opt or nums:
+            segs = ("nse_fo", "bse_fo")
+        else:
+            segs = CASH
         for seg in segs:
-            if seg not in self._frames and seg == "nse_fo" and not (want_opt or nums) and len(name) < 3:
+            if seg not in self._frames and seg in ("nse_fo", "bse_fo") and not (want_opt or nums) and len(name) < 3:
                 continue                                        # don't download huge F&O files for a 1-2 letter search
             try:
                 df = self._df(seg)

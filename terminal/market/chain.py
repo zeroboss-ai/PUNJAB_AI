@@ -454,10 +454,13 @@ class KotakChainProvider:
                 key = ins.get("neoSymbol") or ins.get("token")
                 if strike is None or not key:
                     continue
+                key_str = str(key)
+                if "|" not in key_str:
+                    key_str = f"{self._exchange(target)}|{key_str}"
                 if str(ins.get("moneyness", "")).upper() == "ATM":
                     raw.atm_hint = strike
                 raw.rows.setdefault(strike, {})[kind] = Leg(
-                    str(key),
+                    key_str,
                     str(ins.get("symbol") or ""),
                     _f(q.get("ltp")),
                     _f(q.get("pc")) or _f(q.get("prevClose")),
