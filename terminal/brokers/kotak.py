@@ -386,9 +386,11 @@ class KotakFeed:
         with self._lock:
             for s in subs:
                 self._subs[s.symbol] = s
-                self._by_key[(s.segment.lower(), str(s.token))] = s.symbol
-                if not str(s.token).strip().isdigit():                       # indices are subscribed by NAME
-                    self._name_map[(s.segment.lower(), _norm(s.token))] = s.symbol
+                seg = s.segment.lower().strip()
+                tok = str(s.token).strip()
+                self._by_key[(seg, tok)] = s.symbol
+                if not tok.isdigit():                       # indices are subscribed by NAME
+                    self._name_map[(seg, _norm(tok))] = s.symbol
         if self._loop and self._pending is not None:
             asyncio.run_coroutine_threadsafe(self._pending.put(list(subs)), self._loop)
 
@@ -398,6 +400,20 @@ class KotakFeed:
 
     def stop(self) -> None:
         self._stop.set()
+
+    async def _do_subscribe(self, ws, tokens: list[Subscription], WsToken) -> None:
+        idx_tokens = [WsToken(x.segment.lower().strip(), str(x.token).strip()) for x in tokens if not str(x.token).strip().isdigit()]
+        scrip_tokens = [WsToken(x.segment.lower().strip(), str(x.token).strip()) for x in tokens if str(x.token).strip().isdigit()]
+        if idx_tokens:
+            try:
+                await ws.subscribe_index(idx_tokens)
+            except Exception as e:
+                log.warning("subscribe_index error: %r", e)
+        if scrip_tokens:
+            try:
+                await ws.subscribe_scrips(scrip_tokens)
+            except Exception as e:
+                log.warning("subscribe_scrips error: %r", e)
 
     async def _main(self) -> None:
         from neo_api_client.websocket.feed import WsToken
@@ -410,7 +426,7 @@ class KotakFeed:
                     with self._lock:
                         known = list(self._subs.values())
                     if known:
-                        await ws.subscribe_scrips([WsToken(x.segment, x.token) for x in known])
+                        await self._do_subscribe(ws, known, WsToken)
                     pump = asyncio.create_task(self._pump(ws, WsToken))
                     try:
                         async for message in ws:
@@ -427,7 +443,7 @@ class KotakFeed:
     async def _pump(self, ws, WsToken) -> None:
         while True:
             batch = await self._pending.get()
-            await ws.subscribe_scrips([WsToken(x.segment, x.token) for x in batch])
+            await self._do_subscribe(ws, batch, WsToken)
 
     def _handle(self, message: Any) -> None:
         """Duck-typed on purpose: SFeedScrip, SFeedScripLite and SFeedIndex all carry last_traded_price;
@@ -438,11 +454,16 @@ class KotakFeed:
         price = _f(ltp, 0.0)
         if price <= 0:
             return
-        seg = str(getattr(message, "exchange_segment", "") or "").lower()
-        tok = str(getattr(message, "instrument_token", "") or "")
-        name = str(getattr(message, "name", "") or "").lower()               # SFeedIndex only
-        tsym = str(getattr(message, "trading_symbol", "") or "").lower()
+        seg = str(getattr(message, "exchange_segment", "") or "").lower().strip()
+        tok = str(getattr(message, "instrument_token", "") or "").strip()
+        name = str(getattr(message, "name", "") or "").lower().strip()               # SFeedIndex only
+        tsym = str(getattr(message, "trading_symbol", "") or "").lower().strip()
         sym = self._by_key.get((seg, tok))
+        if sym is None:
+            for (s_seg, s_tok), v in self._by_key.items():
+                if s_tok == tok and (s_seg == seg or s_seg.startswith(seg) or seg.startswith(s_seg)):
+                    sym = v
+                    break
         if sym is None and getattr(message, "type", "") == "index":
             sym = self._name_map.get((seg, _norm(name))) or self._name_map.get((seg, _norm(tsym.split("-")[0])))
             if sym is None:
