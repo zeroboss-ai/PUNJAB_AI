@@ -165,7 +165,10 @@ export function Watchlist() {
           )}
         </div>
         {error && !data ? (
-          <Empty title="Could not load your watchlists">{error}</Empty>
+          <Empty title="Could not load your watchlists">
+            <p style={{ marginBottom: 12 }}>{error}</p>
+            <button className="btn primary sm" onClick={reload}>Retry</button>
+          </Empty>
         ) : !cur ? (
           <Empty title="Loading…" />
         ) : cur.items.length === 0 ? (

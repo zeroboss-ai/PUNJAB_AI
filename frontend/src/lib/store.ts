@@ -45,6 +45,7 @@ export function usePoll<T>(path: string | null, ms: number) {
     const ctl = new AbortController();
     const run = async () => {
       const mine = ++tick.current;
+      let hadErr = false;
       if (!document.hidden) {
         try {
           const d = await api<T>(path, { signal: ctl.signal });
@@ -53,12 +54,13 @@ export function usePoll<T>(path: string | null, ms: number) {
             setError(null);
           }
         } catch (e) {
+          hadErr = true;
           if (alive && (e as Error).name !== "AbortError") setError((e as Error).message);
         } finally {
           if (alive) setLoading(false);
         }
       }
-      if (alive) timer = window.setTimeout(run, ms);
+      if (alive) timer = window.setTimeout(run, hadErr ? Math.min(ms, 3000) : ms);
     };
     run();
     return () => {
