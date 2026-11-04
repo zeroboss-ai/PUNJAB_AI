@@ -993,11 +993,14 @@ def create_app(svc: Services, password: str) -> FastAPI:
         if path.startswith("api/") or path == "ws":
             raise HTTPException(404)
         f = (DIST / path).resolve()
+        no_cache = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
         if path and f.is_file() and DIST.resolve() in f.parents:
+            if path in ("sw.js", "manifest.webmanifest", "manifest.json", "index.html"):
+                return FileResponse(f, headers=no_cache)
             return FileResponse(f)
         idx = DIST / "index.html"
         if idx.is_file():
-            return FileResponse(idx)
+            return FileResponse(idx, headers=no_cache)
         return HTMLResponse("<h2>Frontend not built</h2><p>Run <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>.</p>",
                             status_code=503)
 
