@@ -106,6 +106,7 @@ class Services:
         self.algo = Controller(cfg, self._build_engine, self.session, ip_check=self._ip_problem)
         self.rules = RuleEngine(self.store, HubMarket(self.hub, self.chain, self.catalog), self.trading, cfg.data_dir, notify=self.alerts.notify)
         self.rules.attach(self.hub)
+        self._seed_default_strategies()
         self.journal = Journal(self.store, self.trading, self.mode)
         self.history = CandleDB(Path(cfg.data_dir) / "candles.db")
         self.backtest = BacktestManager(cfg, self.history)
@@ -589,6 +590,29 @@ class Services:
         return eng
 
     # --------------------------------------------------------------- defaults
+    def _seed_default_strategies(self) -> None:
+        try:
+            if not self.store.list_strategies():
+                from .rules import strategies
+                tpl_map = {t["id"]: t for t in strategies.templates()}
+                seeds = [
+                    ("orb", "Opening-Range Breakout (ORB)"),
+                    ("leg_straddle", "Short Straddle 09:20"),
+                    ("leg_strangle_delta", "Short Strangle by Delta"),
+                    ("leg_condor", "Iron Condor with Hedges"),
+                ]
+                for tid, custom_name in seeds:
+                    if tid in tpl_map:
+                        t = tpl_map[tid]
+                        st, _, _ = strategies.parse(t["spec"])
+                        if st:
+                            d = st.to_json()
+                            d["name"] = custom_name
+                            self.store.save_strategy(None, custom_name, d)
+                            log.info("Seeded pre-built strategy: %s", custom_name)
+        except Exception as e:
+            log.warning("could not seed default strategies: %r", e)
+
     def _seed_defaults(self, sample: bool = False) -> None:
         if self.store.watchlists():
             return

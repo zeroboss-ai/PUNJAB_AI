@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { api } from "../lib/api";
-import { toast, useSession, useTitle } from "../lib/app";
-import { dash, px, rupees, shortTime } from "../lib/format";
+import { navigate, toast, useSession, useTitle } from "../lib/app";
+import { dash, px, rupees, signedRupees, shortTime } from "../lib/format";
 import { usePoll } from "../lib/store";
 import type { AlgoSnap } from "../lib/types";
+import { type StrategyRow, STATUS_TEXT } from "../lib/strategy";
 import { Empty, Modal, Pnl } from "../components/ui";
+import { Live, pnlClass } from "../components/LiveStrategyView";
 
-const STATE: Record<string, string> = {
+const LEGACY_STATE: Record<string, string> = {
   WAIT_LOCK: "Waiting for the 9:15 open",
   BUILDING_RANGE: "Building the opening range",
   SCANNING: "Watching for a breakout",
@@ -16,7 +18,8 @@ const STATE: Record<string, string> = {
   HALTED: "Halted for the day",
   DONE: "Done for the day",
 };
-const PHASE: Record<string, string> = {
+
+const LEGACY_PHASE: Record<string, string> = {
   IDLE: "Not started",
   INIT: "Starting",
   WAIT_REF: "Waiting for reference prices",
@@ -39,17 +42,38 @@ export function Algo() {
   const s = useSession();
   const { data: a, reload, error } = usePoll<AlgoSnap>("/algo", 1000);
   const [busy, setBusy] = useState(false);
-  const [confirmKill, setConfirmKill] = useState(false);
+  const [confirmKillAll, setConfirmKillAll] = useState(false);
+  const [askStopId, setAskStopId] = useState<number | null>(null);
+  const [selectedLaunchStrat, setSelectedLaunchStrat] = useState<StrategyRow | null>(null);
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
+  const [confirmLive, setConfirmLive] = useState(false);
 
-  const running = !!a && a.phase !== "IDLE" && !a.finished;
+  const runningStrats = (a?.running ?? []).filter((r) => r.running);
+  const availableStrats = a?.available ?? [];
+  const legacyRunning = !!a && a.phase !== "IDLE" && !a.finished && runningStrats.length === 0;
+  const anyRunning = runningStrats.length > 0 || legacyRunning;
   const sample = s?.mode === "sample";
-  const st = a?.strategy;
+  const isLive = s?.mode === "live";
 
-  async function act(path: string, body?: object, done?: string) {
+  const totalPnl = a?.total_pnl ?? 0;
+  const realisedPnl = a?.realised_pnl ?? 0;
+  const unrealisedPnl = a?.unrealised_pnl ?? 0;
+
+  async function startStrategy(sid: number) {
+    if (isLive && !confirmLive) {
+      toast("Please confirm live orders before launching", "err");
+      return;
+    }
     setBusy(true);
     try {
-      await api(path, { method: "POST", body });
-      if (done) toast(done);
+      await api(`/strategies/${sid}/start`, {
+        method: "POST",
+        body: { confirm_live: confirmLive },
+      });
+      toast("Algo started successfully");
+      setSelectedLaunchStrat(null);
+      setShowLaunchModal(false);
+      setConfirmLive(false);
       reload();
     } catch (e) {
       toast((e as Error).message, "err");
@@ -58,168 +82,460 @@ export function Algo() {
     }
   }
 
-  const limit = a?.risk?.max_daily_loss ?? a?.max_daily_loss ?? 0;
-  const loss = a?.risk && limit > 0 ? Math.min(1, Math.max(0, -a.risk.total / limit)) : 0;
-  const status = !a ? "Loading…" : a.finished ? (st ? STATE[st.state] ?? st.state : "Finished") : st && running && a.phase === "RUNNING" ? STATE[st.state] ?? st.state : PHASE[a.phase] ?? a.phase;
+  async function pauseStrategy(sid: number, paused: boolean) {
+    setBusy(true);
+    try {
+      await api(`/strategies/${sid}/pause`, {
+        method: "POST",
+        body: { paused },
+      });
+      toast(paused ? "Entries paused" : "Entries resumed");
+      reload();
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopStrategy(sid: number) {
+    setBusy(true);
+    try {
+      await api(`/strategies/${sid}/stop`, { method: "POST" });
+      toast("Algo stopped");
+      setAskStopId(null);
+      reload();
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function killAll() {
+    setBusy(true);
+    try {
+      await api("/algo/kill", { method: "POST" });
+      toast("All algos stopped and exited");
+      setConfirmKillAll(false);
+      reload();
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>Opening-range algo</h1>
+          <h1>Algo execution</h1>
           <p>
-            Sells the ATM option when the index and that option both break their first-four-minute range. {a?.instrument ? `Trading ${a.instrument}.` : ""}
+            Live automated execution dashboard. When you run strategies (pre-built or custom), they appear here numbered as Algo 1, 2, 3… with real-time triggers, live position tracking, and execution controls.
           </p>
         </div>
         <div className="row">
-          {!running && (
-            <button className="btn primary" disabled={busy || (a?.needs_login && !a.logged_in)} onClick={() => act("/algo/start", undefined, sample ? "Demo day started" : "Algo started")}>
-              {sample ? "Run a demo day" : a?.finished ? "Start a new session" : "Start algo"}
+          <button
+            className="btn primary"
+            disabled={busy || (a?.needs_login && !a.logged_in)}
+            onClick={() => {
+              setConfirmLive(false);
+              setShowLaunchModal(true);
+            }}
+          >
+            + Launch Strategy
+          </button>
+          {anyRunning && (
+            <button
+              className="btn danger"
+              disabled={busy}
+              onClick={() => setConfirmKillAll(true)}
+            >
+              Emergency stop all
             </button>
           )}
-          {running && st && (
-            <button className="btn" disabled={busy} onClick={() => act("/algo/pause", { paused: !st.entries_paused })}>
-              {st.entries_paused ? "Allow new entries" : "Pause new entries"}
-            </button>
-          )}
-          {running && <button className="btn danger" disabled={busy} onClick={() => setConfirmKill(true)}>Stop and exit</button>}
         </div>
       </div>
 
       {error && !a && <div className="notice bad" style={{ marginBottom: 12 }}>{error}</div>}
       {a?.manual_action_required && (
         <div className="notice bad" style={{ marginBottom: 12 }} role="alert">
-          <b>Action required.</b> The algo could not confirm what is open on your account. Check your positions in the Kotak app and close anything you do not want. See the log below.
+          <b>Action required.</b> The algo could not confirm what is open on your account. Check your positions in the Kotak app and close anything you do not want.
         </div>
       )}
-      {a?.needs_login && !a.logged_in && <div className="notice" style={{ marginBottom: 12 }}>Connect to Kotak first. The algo needs a login to read prices and place orders.</div>}
-      {sample && !running && (
+      {a?.needs_login && !a.logged_in && (
         <div className="notice" style={{ marginBottom: 12 }}>
-          Sample mode replays an invented trading day through the real algo logic, so you can watch how it behaves. No prices here are real.
+          Connect to Kotak first. The algo engine needs broker access to stream live ticks and punch orders.
+        </div>
+      )}
+      {sample && !anyRunning && (
+        <div className="notice" style={{ marginBottom: 12 }}>
+          Sample mode: started algos run on simulated market scenarios without affecting real capital.
         </div>
       )}
 
-      <div className="grid2">
-        <section className="panel">
-          <div className="panel-h">Status</div>
-          <div className="panel-b">
+      {/* KPI stats bar when running */}
+      {anyRunning && (
+        <div className="grid4" style={{ marginBottom: 16 }}>
+          <section className="panel" style={{ padding: "12px 14px" }}>
+            <div className="muted" style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Active Algos</div>
+            <div style={{ fontSize: "22px", fontWeight: 700, marginTop: 4 }}>
+              {runningStrats.length || (legacyRunning ? 1 : 0)} Running
+            </div>
+          </section>
+          <section className="panel" style={{ padding: "12px 14px" }}>
+            <div className="muted" style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Total P&amp;L Today</div>
+            <div className={pnlClass(totalPnl)} style={{ fontSize: "22px", fontWeight: 700, marginTop: 4 }}>
+              {signedRupees(totalPnl)}
+            </div>
+          </section>
+          <section className="panel" style={{ padding: "12px 14px" }}>
+            <div className="muted" style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Booked / Open</div>
+            <div style={{ fontSize: "17px", fontWeight: 600, marginTop: 7 }}>
+              <span className={pnlClass(realisedPnl)}>{signedRupees(realisedPnl)}</span>
+              {" / "}
+              <span className={pnlClass(unrealisedPnl)}>{signedRupees(unrealisedPnl)}</span>
+            </div>
+          </section>
+          <section className="panel" style={{ padding: "12px 14px" }}>
+            <div className="muted" style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Trading Mode</div>
+            <div style={{ fontSize: "18px", fontWeight: 700, marginTop: 6 }}>
+              <span className={`chip ${isLive ? "down" : "flat"}`}>
+                {s?.mode?.toUpperCase() ?? "PAPER"}
+              </span>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* Running Algos list: Algo 1, Algo 2, Algo 3... */}
+      {runningStrats.length > 0 && (
+        <div className="stack" style={{ gap: 16, marginBottom: 20 }}>
+          {runningStrats.map((strat, idx) => {
+            const st = strat.state;
+            const statusLabel = STATUS_TEXT[st?.status ?? ""] ?? st?.status ?? "Running";
+            return (
+              <section className="panel strat" key={strat.id}>
+                <div className="strat-h" style={{ borderBottom: "1px solid var(--line)", background: "var(--raised)" }}>
+                  <div className="strat-title">
+                    <span
+                      className="chip warn"
+                      style={{ fontWeight: 800, fontSize: "13px", padding: "3px 10px", borderRadius: 4 }}
+                    >
+                      Algo #{idx + 1}
+                    </span>
+                    <b style={{ fontSize: "15px" }}>{strat.name}</b>
+                    <span className={`chip ${st?.status === "halted" ? "down" : strat.running ? "up" : "flat"}`}>
+                      {statusLabel}
+                    </span>
+                    {st?.pnl && (
+                      <span className={pnlClass(st.pnl.total)} style={{ fontWeight: 700, fontSize: "15px", marginLeft: 6 }}>
+                        {signedRupees(st.pnl.total)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <button
+                      className="btn sm"
+                      disabled={busy}
+                      onClick={() => pauseStrategy(strat.id, !st?.paused)}
+                    >
+                      {st?.paused ? "Resume entries" : "Pause entries"}
+                    </button>
+                    <button
+                      className="btn danger sm"
+                      disabled={busy}
+                      onClick={() => setAskStopId(strat.id)}
+                    >
+                      Stop Algo
+                    </button>
+                  </div>
+                </div>
+                <div className="panel-b">
+                  {st ? (
+                    <Live st={st} />
+                  ) : (
+                    <div className="hint" style={{ padding: 12 }}>Waiting for initial strategy telemetry…</div>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Legacy Controller fallback view if active */}
+      {legacyRunning && a && a.strategy && (
+        <section className="panel strat" style={{ marginBottom: 20 }}>
+          <div className="strat-h" style={{ borderBottom: "1px solid var(--line)", background: "var(--raised)" }}>
+            <div className="strat-title">
+              <span className="chip warn" style={{ fontWeight: 800, fontSize: "13px", padding: "3px 10px" }}>
+                Algo #1
+              </span>
+              <b style={{ fontSize: "15px" }}>Opening-Range Breakout (Legacy)</b>
+              <span className="chip up">{LEGACY_STATE[a.strategy.state] ?? a.strategy.state}</span>
+              {a.risk && (
+                <span className={pnlClass(a.risk.total)} style={{ fontWeight: 700, fontSize: "15px", marginLeft: 6 }}>
+                  {signedRupees(a.risk.total)}
+                </span>
+              )}
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                className="btn sm"
+                disabled={busy}
+                onClick={() => api("/algo/pause", { method: "POST", body: { paused: !a.strategy?.entries_paused } }).then(reload)}
+              >
+                {a.strategy.entries_paused ? "Allow entries" : "Pause entries"}
+              </button>
+              <button className="btn danger sm" disabled={busy} onClick={() => setConfirmKillAll(true)}>
+                Stop Algo
+              </button>
+            </div>
+          </div>
+          <div className="panel-b stack">
             <dl className="kv">
-              <dt>State</dt><dd style={{ fontWeight: 600 }}>{status}</dd>
-              <dt>Clock</dt><dd>{a?.time ?? dash}</dd>
-              <dt>ATM strike</dt><dd>{a?.atm ?? dash}</dd>
-              <dt>Index</dt><dd>{px(a?.prices?.INDEX)}</dd>
-              <dt>ATM call / put</dt><dd>{px(a?.prices?.CE)} / {px(a?.prices?.PE)}</dd>
-              <dt>Trades today</dt><dd>{st ? `${st.trades_taken} of ${st.max_trades} allowed` : dash}</dd>
-              {a?.rules && (<><dt>Rules</dt><dd className="muted">Range {a.rules.range}; stop-loss from the {a.rules.sl_candle} candle high; entries until {a.rules.entry_cutoff}; exit by {a.rules.exit_time}</dd></>)}
+              <dt>State</dt><dd style={{ fontWeight: 600 }}>{LEGACY_STATE[a.strategy.state] ?? a.strategy.state}</dd>
+              <dt>Clock</dt><dd>{a.time ?? dash}</dd>
+              <dt>ATM Strike</dt><dd>{a.atm ?? dash}</dd>
+              <dt>Index Spot</dt><dd>{px(a.prices?.INDEX)}</dd>
+              <dt>ATM Call / Put</dt><dd>{px(a.prices?.CE)} / {px(a.prices?.PE)}</dd>
+              <dt>Trades Today</dt><dd>{`${a.strategy.trades_taken} of ${a.strategy.max_trades} allowed`}</dd>
             </dl>
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="panel-h">Day risk</div>
-          <div className="panel-b">
-            <div className="stats" style={{ marginBottom: 14 }}>
-              <div className="stat"><span className="k">Booked</span><span className="v" style={{ fontSize: 17 }}><Pnl v={a?.risk?.realised} /></span></div>
-              <div className="stat"><span className="k">Open</span><span className="v" style={{ fontSize: 17 }}><Pnl v={a?.risk?.open_pnl} /></span></div>
-              <div className="stat"><span className="k">Total</span><span className="v" style={{ fontSize: 17 }}><Pnl v={a?.risk?.total} /></span></div>
-            </div>
-            <div className="range-bar" style={{ background: "var(--line-2)", overflow: "hidden" }} aria-hidden="true">
-              <div style={{ width: `${loss * 100}%`, height: "100%", background: loss > 0.8 ? "var(--down)" : "var(--accent)", borderRadius: 3 }} />
-            </div>
-            <div className="range-lbl"><span>Loss used</span><span>{limit > 0 ? `Limit ${rupees(limit)}` : "No daily limit set"}</span></div>
-          </div>
-        </section>
-      </div>
-
-      <div className="grid2">
-        <section className="panel">
-          <div className="panel-h">Opening ranges</div>
-          {st && Object.keys(st.ranges).length ? (
-            <table className="t">
-              <thead><tr><th>Instrument</th><th className="num">High</th><th className="num">Low</th></tr></thead>
-              <tbody>
-                {Object.entries(st.ranges).map(([k, r]) => (
-                  <tr key={k}><td>{k}</td><td className="num">{px(r.high)}</td><td className="num">{px(r.low)}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <Empty title="No range yet">The range is set from the first four one-minute candles after 9:15.</Empty>
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="panel-h">Current trade</div>
-          {st?.position ? (
-            <div className="panel-b">
-              <dl className="kv">
-                <dt>Sold</dt><dd style={{ fontWeight: 600 }}>{st.position.symbol} × {st.position.qty}</dd>
-                <dt>Entry</dt><dd>{px(st.position.entry)}</dd>
-                <dt>Stop-loss</dt><dd>{px(st.position.sl)}</dd>
-                <dt>Price now</dt><dd>{px(st.position.ltp)}</dd>
-                <dt>Open P&amp;L</dt><dd><Pnl v={st.position.open_pnl} /></dd>
-              </dl>
-            </div>
-          ) : (
-            <Empty title="No open trade" />
-          )}
-        </section>
-      </div>
-
-      <section className="panel" style={{ marginBottom: 12 }}>
-        <div className="panel-h">Trades today</div>
-        {st && st.trades.length ? (
-          <div className="tscroll">
-            <table className="t">
-              <thead><tr><th>Sold</th><th className="num">Qty</th><th className="num">Entry</th><th className="num">Exit</th><th>Why it closed</th><th className="num">P&amp;L</th></tr></thead>
-              <tbody>
-                {st.trades.map((t, i) => (
-                  <tr key={i}>
-                    <td>{String(t.symbol ?? t.side)}</td>
-                    <td className="num">{String(t.qty ?? "")}</td>
-                    <td className="num">{px(t.entry as number)}</td>
-                    <td className="num">{px(t.exit as number)}</td>
-                    <td className="muted">{WHY[String(t.reason)] ?? String(t.reason ?? "")}</td>
-                    <td className="num"><Pnl v={t.pnl as number} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <Empty title="No completed trades" />
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="panel-h">Log</div>
-        {a?.events?.length ? (
-          <div className="log" role="log">
-            {[...a.events].reverse().map((e, i) => (
-              <div key={i} className={`lv-${e.level}`}>
-                <span className="faint">{shortTime(e.ts)}</span>
-                <span>{e.level}</span>
-                <span>{e.msg}</span>
+            {a.strategy.position ? (
+              <div className="panel-b" style={{ background: "var(--raised)", borderRadius: 6 }}>
+                <b>Current Position:</b> Sold {a.strategy.position.symbol} × {a.strategy.position.qty} @ {px(a.strategy.position.entry)} | SL {px(a.strategy.position.sl)} | LTP {px(a.strategy.position.ltp)} | P&amp;L <Pnl v={a.strategy.position.open_pnl} />
               </div>
-            ))}
+            ) : null}
           </div>
-        ) : (
-          <Empty title="Nothing logged yet" />
-        )}
-      </section>
+        </section>
+      )}
 
-      {confirmKill && (
+      {/* Empty State / Available Algos to Launch */}
+      {!anyRunning && (
+        <div className="stack" style={{ gap: 16 }}>
+          <section className="panel" style={{ padding: 24, textAlign: "center" }}>
+            <h2 style={{ marginBottom: 8, fontSize: "19px" }}>No active algos running right now</h2>
+            <p className="muted" style={{ maxWidth: 640, margin: "0 auto 18px auto" }}>
+              All pre-built strategies (Opening-Range Breakout, Short Straddle, Short Strangle, Iron Condor) and any strategies you create in My Strategies can be launched here. Each running strategy will be numbered as Algo 1, Algo 2, etc.
+            </p>
+            <div className="row" style={{ justifyContent: "center", gap: 12 }}>
+              <button
+                className="btn primary"
+                onClick={() => {
+                  setConfirmLive(false);
+                  setShowLaunchModal(true);
+                }}
+              >
+                + Launch a Strategy
+              </button>
+              <button className="btn" onClick={() => navigate("/strategies")}>
+                Go to My Strategies
+              </button>
+            </div>
+          </section>
+
+          {availableStrats.length > 0 && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <h3 style={{ fontSize: "16px", fontWeight: 600 }}>Ready to Launch</h3>
+                <span className="muted" style={{ fontSize: "13px" }}>{availableStrats.length} strategies available</span>
+              </div>
+              <div className="cards">
+                {availableStrats.map((strat) => (
+                  <div className="card" key={strat.id} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <b style={{ fontSize: "15px" }}>{strat.name}</b>
+                      </div>
+                      <div className="muted" style={{ fontSize: "12.5px", marginBottom: 12 }}>
+                        {strat.summary?.slice(0, 2).join(" · ") || "Ready to run"}
+                      </div>
+                    </div>
+                    <div>
+                      <button
+                        className="btn primary sm"
+                        style={{ width: "100%" }}
+                        onClick={() => {
+                          setSelectedLaunchStrat(strat);
+                          setConfirmLive(false);
+                        }}
+                      >
+                        ▶ Launch as Algo #{runningStrats.length + 1}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Launch Strategy Modal */}
+      {(showLaunchModal || selectedLaunchStrat) && (
         <Modal
-          title="Stop the algo and exit?"
-          onClose={() => setConfirmKill(false)}
+          title={selectedLaunchStrat ? `Launch ${selectedLaunchStrat.name}` : "Launch an Algo"}
+          onClose={() => {
+            setSelectedLaunchStrat(null);
+            setShowLaunchModal(false);
+            setConfirmLive(false);
+          }}
+          footer={
+            selectedLaunchStrat ? (
+              <>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setSelectedLaunchStrat(null);
+                    setConfirmLive(false);
+                  }}
+                >
+                  Back
+                </button>
+                <button
+                  className="btn primary"
+                  disabled={busy || (isLive && !confirmLive)}
+                  onClick={() => startStrategy(selectedLaunchStrat.id)}
+                >
+                  Start Algo
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn"
+                onClick={() => {
+                  setShowLaunchModal(false);
+                  setConfirmLive(false);
+                }}
+              >
+                Close
+              </button>
+            )
+          }
+        >
+          {selectedLaunchStrat ? (
+            <div className="stack">
+              <p>
+                You are about to launch <b>{selectedLaunchStrat.name}</b> as <b>Algo #{runningStrats.length + 1}</b>.
+              </p>
+              {selectedLaunchStrat.summary && (
+                <div className="panel-b" style={{ background: "var(--raised)", borderRadius: 6 }}>
+                  <ul style={{ paddingLeft: 18, margin: 0, fontSize: "13.5px" }}>
+                    {selectedLaunchStrat.summary.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {isLive ? (
+                <label className="checkbox" style={{ marginTop: 12, padding: "8px 10px", background: "var(--down-bg)", border: "1px solid var(--down)", borderRadius: 6, display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={confirmLive}
+                    onChange={(e) => setConfirmLive(e.target.checked)}
+                  />
+                  <span style={{ fontSize: "13px", fontWeight: 600 }}>
+                    LIVE mode: I confirm this strategy will place REAL orders on my account.
+                  </span>
+                </label>
+              ) : (
+                <p className="hint">
+                  Trading mode: <b>{s?.mode?.toUpperCase() ?? "PAPER"}</b>. Orders will be simulated safely.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="stack">
+              <p style={{ marginBottom: 10 }}>Select which strategy to start running:</p>
+              {availableStrats.length === 0 ? (
+                <Empty title="No available strategies">
+                  All saved strategies are already running or none are created yet. Go to <a onClick={() => navigate("/strategies")} style={{ cursor: "pointer", textDecoration: "underline" }}>My Strategies</a> to add more.
+                </Empty>
+              ) : (
+                <div className="stack" style={{ gap: 8, maxHeight: "50vh", overflowY: "auto" }}>
+                  {availableStrats.map((strat) => (
+                    <div
+                      key={strat.id}
+                      style={{
+                        padding: "10px 14px",
+                        border: "1px solid var(--line)",
+                        borderRadius: 8,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        background: "var(--panel)",
+                      }}
+                    >
+                      <div>
+                        <b>{strat.name}</b>
+                        <div className="muted" style={{ fontSize: "12px" }}>
+                          {strat.summary?.slice(0, 2).join(" · ")}
+                        </div>
+                      </div>
+                      <button
+                        className="btn primary sm"
+                        onClick={() => setSelectedLaunchStrat(strat)}
+                      >
+                        Select
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {/* Stop Single Strategy Confirmation */}
+      {askStopId !== null && (
+        <Modal
+          title="Stop this algo?"
+          onClose={() => setAskStopId(null)}
           footer={
             <>
-              <button className="btn" onClick={() => setConfirmKill(false)}>Keep running</button>
-              <button className="btn danger solid" disabled={busy} onClick={async () => { await act("/algo/kill", undefined, "Algo stopped"); setConfirmKill(false); }}>Stop and exit</button>
+              <button className="btn" onClick={() => setAskStopId(null)}>
+                Keep running
+              </button>
+              <button
+                className="btn danger solid"
+                disabled={busy}
+                onClick={() => stopStrategy(askStopId)}
+              >
+                Stop Algo
+              </button>
             </>
           }
         >
-          <p>The algo closes any trade it has open and takes no more entries today.</p>
+          <p>This will stop this specific algorithm and cancel any pending orders or exit open positions for this strategy.</p>
+        </Modal>
+      )}
+
+      {/* Emergency Stop All Modal */}
+      {confirmKillAll && (
+        <Modal
+          title="Emergency Stop All Algos?"
+          onClose={() => setConfirmKillAll(false)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setConfirmKillAll(false)}>
+                Keep running
+              </button>
+              <button
+                className="btn danger solid"
+                disabled={busy}
+                onClick={killAll}
+              >
+                Emergency Stop All
+              </button>
+            </>
+          }
+        >
+          <p>
+            This halts <b>all active running algorithms immediately</b> and requests market exit for all open positions.
+          </p>
         </Modal>
       )}
     </>

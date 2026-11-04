@@ -126,6 +126,12 @@ class OrderIdsIn(BaseModel):
 
 class PauseIn(BaseModel):
     paused: bool = True
+    strategy_id: int | None = None
+
+
+class AlgoStartIn(BaseModel):
+    strategy_id: int | None = None
+    confirm_live: bool = False
 
 
 class StrategyIn(BaseModel):
@@ -631,24 +637,7 @@ def create_app(svc: Services, password: str) -> FastAPI:
             raise HTTPException(422, "Bad underlying or expiry")
         return {"ok": True, "points": svc.chain.series(und, expiry)}
 
-    # ------------------------------------------------------------------------------ algo
-    @app.get("/api/algo", dependencies=[Depends(auth)])
-    def algo_state():
-        return svc.algo.snapshot()
-
-    @app.post("/api/algo/start", dependencies=[Depends(guard)])
-    def algo_start():
-        return safe(lambda: (svc.algo.start(), {"ok": True})[1])
-
-    @app.post("/api/algo/pause", dependencies=[Depends(guard)])
-    def algo_pause(body: PauseIn):
-        return safe(lambda: (svc.algo.pause(body.paused), {"ok": True})[1])
-
-    @app.post("/api/algo/kill", dependencies=[Depends(guard)])
-    def algo_kill():
-        return safe(lambda: (svc.algo.kill(), {"ok": True})[1])
-
-    # ------------------------------------------------------------------- rule strategies
+    # ------------------------------------------------------------------- rule strategies helpers
     def guarded(fn):
         def go():
             try:
@@ -666,6 +655,90 @@ def create_app(svc: Services, password: str) -> FastAPI:
         snap = svc.rules.status(row["id"])
         return {"id": row["id"], "name": row["name"], "spec": row["spec"], "valid": st is not None, "errors": errs, "warnings": warns,
                 "summary": describe(st) if st else [], "state": snap, "running": row["id"] in svc.rules.running(), "updated": row["updated"]}
+
+    # ------------------------------------------------------------------------------ algo
+    @app.get("/api/algo", dependencies=[Depends(auth)])
+    def algo_state():
+        running_ids = svc.rules.running()
+        all_strategies = [strategy_row(r) for r in svc.store.list_strategies()]
+        running_strats = [s for s in all_strategies if s["id"] in running_ids]
+        available_strats = [s for s in all_strategies if s["id"] not in running_ids and s["valid"]]
+
+        total_pnl = 0.0
+        realised_pnl = 0.0
+        unrealised_pnl = 0.0
+        for s in running_strats:
+            snap = s.get("state")
+            if snap and "pnl" in snap and isinstance(snap["pnl"], dict):
+                total_pnl += float(snap["pnl"].get("total", 0.0) or 0.0)
+                realised_pnl += float(snap["pnl"].get("realised", 0.0) or 0.0)
+                unrealised_pnl += float(snap["pnl"].get("unrealised", 0.0) or 0.0)
+
+        legacy = svc.algo.snapshot()
+        return {
+            "ok": True,
+            "running": running_strats,
+            "available": available_strats,
+            "running_count": len(running_strats),
+            "total_pnl": round(total_pnl, 2),
+            "realised_pnl": round(realised_pnl, 2),
+            "unrealised_pnl": round(unrealised_pnl, 2),
+            "mode": svc.mode,
+            "connected": svc.connected,
+            **legacy,
+        }
+
+    @app.post("/api/algo/start", dependencies=[Depends(guard)])
+    def algo_start(body: AlgoStartIn | None = None):
+        def go():
+            sid = body.strategy_id if body and body.strategy_id else None
+            confirm_live = body.confirm_live if body else False
+            if sid is not None:
+                if svc.mode == "live" and not confirm_live:
+                    raise RuntimeError("Live mode: confirm that this strategy may place REAL orders")
+                with order_lock:
+                    svc.rules.start(sid)
+                return {"ok": True, "started_id": sid}
+            # If no sid given, start first available valid strategy
+            running_ids = svc.rules.running()
+            for r in svc.store.list_strategies():
+                if r["id"] not in running_ids:
+                    st, _, _ = parse(r["spec"])
+                    if st is not None:
+                        if svc.mode == "live" and not confirm_live:
+                            raise RuntimeError("Live mode: confirm that this strategy may place REAL orders")
+                        with order_lock:
+                            svc.rules.start(r["id"])
+                        return {"ok": True, "started_id": r["id"]}
+            # Fallback to legacy controller if no rules strategies available
+            svc.algo.start()
+            return {"ok": True}
+        return safe(go)
+
+    @app.post("/api/algo/pause", dependencies=[Depends(guard)])
+    def algo_pause(body: PauseIn):
+        def go():
+            if body.strategy_id is not None:
+                (svc.rules.pause if body.paused else svc.rules.resume)(body.strategy_id)
+            else:
+                for sid in svc.rules.running():
+                    (svc.rules.pause if body.paused else svc.rules.resume)(sid)
+                svc.algo.pause(body.paused)
+            return {"ok": True}
+        return safe(go)
+
+    @app.post("/api/algo/kill", dependencies=[Depends(guard)])
+    def algo_kill():
+        def go():
+            svc.rules.kill_all("Stopped from Algo dashboard")
+            try:
+                svc.algo.kill()
+            except Exception:
+                pass
+            return {"ok": True}
+        return safe(go)
+
+    # ------------------------------------------------------------------- rule strategies
 
     @app.get("/api/strategy-templates", dependencies=[Depends(auth)])
     def strategy_templates():

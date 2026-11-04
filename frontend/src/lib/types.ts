@@ -1,3 +1,5 @@
+import type { StrategyRow } from "./strategy";
+
 export type Kind = "EQ" | "INDEX" | "CE" | "PE" | "FUT";
 
 export interface Inst {
@@ -177,4 +179,10 @@ export interface AlgoSnap {
   risk?: { max_daily_loss: number; realised: number; open_pnl: number; total: number };
   rules?: { range: string; sl_candle: string; exit_time: string; entry_cutoff: string };
   events: AlgoEvent[];
+  running?: StrategyRow[];
+  available?: StrategyRow[];
+  running_count?: number;
+  total_pnl?: number;
+  realised_pnl?: number;
+  unrealised_pnl?: number;
 }
