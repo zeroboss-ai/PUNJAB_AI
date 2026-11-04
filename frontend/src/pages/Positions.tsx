@@ -254,33 +254,101 @@ export function Positions() {
             </div>
           </Empty>
         ) : (
-          <div className="tscroll">
-            <table className="t">
-              <thead>
-                <tr><th>Instrument</th><th className="num">Net qty</th><th className="num">Avg price</th><th className="num">LTP</th><th className="num">Bought / Sold</th><th className="num">P&amp;L</th><th /></tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.key + p.product + (p.account_id || "")} className={p.open ? "" : "dim"}>
-                    <td><div className="cell-name"><b>{p.label}</b><span>{p.account_label && <span className="chip flat" style={{ marginRight: 4 }}>{p.account_label}</span>}{p.product}{!p.open ? " · closed" : ""}</span></div></td>
-                    <td className="num" style={{ fontWeight: 600 }}>{p.net_qty === 0 ? "0" : lotsLabel(p.net_qty, p.lot)}</td>
-                    <td className="num">{p.open ? px(p.avg_price) : dash}</td>
-                    <td className="num">{px(p.ltp)}</td>
-                    <td className="num muted">{p.buy_qty ? `${p.buy_qty} @ ${px(p.buy_avg)}` : dash} / {p.sell_qty ? `${p.sell_qty} @ ${px(p.sell_avg)}` : dash}</td>
-                    <td className="num" style={{ fontWeight: 600 }}><Pnl v={p.pnl} /></td>
-                    <td>
-                      <div className="acts hover-acts">
-                        <button className="btn ghost icon sm" onClick={() => openChart(p.key, p.label)} aria-label={`Chart ${p.label}`} title="Chart"><IconChart /></button>
-                        <button className="bs b" onClick={() => open_(p, "B")} aria-label={`Buy more ${p.label}`}>B</button>
-                        <button className="bs s" onClick={() => open_(p, "S")} aria-label={`Sell ${p.label}`}>S</button>
-                        {p.open && <button className="btn sm danger" onClick={() => askClose([p.key])}>Close</button>}
+          <>
+            {/* Desktop Table View */}
+            <div className="tscroll hide-on-mobile">
+              <table className="t">
+                <thead>
+                  <tr><th>Instrument</th><th className="num">Net qty</th><th className="num">Avg price</th><th className="num">LTP</th><th className="num">Bought / Sold</th><th className="num">P&amp;L</th><th /></tr>
+                </thead>
+                <tbody>
+                  {filtered.map((p) => (
+                    <tr key={p.key + p.product + (p.account_id || "")} className={p.open ? "" : "dim"}>
+                      <td><div className="cell-name"><b>{p.label}</b><span>{p.account_label && <span className="chip flat" style={{ marginRight: 4 }}>{p.account_label}</span>}{p.product}{!p.open ? " · closed" : ""}</span></div></td>
+                      <td className="num" style={{ fontWeight: 600 }}>{p.net_qty === 0 ? "0" : lotsLabel(p.net_qty, p.lot)}</td>
+                      <td className="num">{p.open ? px(p.avg_price) : dash}</td>
+                      <td className="num">{px(p.ltp)}</td>
+                      <td className="num muted">{p.buy_qty ? `${p.buy_qty} @ ${px(p.buy_avg)}` : dash} / {p.sell_qty ? `${p.sell_qty} @ ${px(p.sell_avg)}` : dash}</td>
+                      <td className="num" style={{ fontWeight: 600 }}><Pnl v={p.pnl} /></td>
+                      <td>
+                        <div className="acts hover-acts">
+                          <button className="btn ghost icon sm" onClick={() => openChart(p.key, p.label)} aria-label={`Chart ${p.label}`} title="Chart"><IconChart /></button>
+                          <button className="bs b" onClick={() => open_(p, "B")} aria-label={`Buy more ${p.label}`}>B</button>
+                          <button className="bs s" onClick={() => open_(p, "S")} aria-label={`Sell ${p.label}`}>S</button>
+                          {p.open && <button className="btn sm danger" onClick={() => askClose([p.key])}>Close</button>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Positions List View */}
+            <div className="show-on-mobile" style={{ padding: "10px" }}>
+              {filtered.map((p) => {
+                const isShort = p.net_qty < 0;
+                return (
+                  <div
+                    key={p.key + p.product + (p.account_id || "")}
+                    className="m-card"
+                    style={{ opacity: p.open ? 1 : 0.65 }}
+                  >
+                    <div className="m-card-h">
+                      <div className="m-card-title">
+                        <b>{p.label}</b>
+                        {p.account_label && <span className="chip flat">{p.account_label}</span>}
+                        <span className="chip flat">{p.product}</span>
+                        {!p.open && <span className="chip flat">Closed</span>}
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <div style={{ fontWeight: 750, fontSize: "16px" }}>
+                        <Pnl v={p.pnl} />
+                      </div>
+                    </div>
+
+                    <div className="m-card-b">
+                      <div>
+                        <span className={`chip ${isShort ? "sell" : "buy"}`} style={{ marginRight: 6 }}>
+                          {isShort ? "SELL" : "BUY"}
+                        </span>
+                        <span>Net: <b>{p.net_qty === 0 ? "0" : lotsLabel(p.net_qty, p.lot)}</b></span>
+                      </div>
+                      <div>
+                        {p.open ? (
+                          <span>Avg: <b>{px(p.avg_price)}</b> → LTP: <b>{px(p.ltp)}</b></span>
+                        ) : (
+                          <span>LTP: <b>{px(p.ltp)}</b></span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="m-card-b" style={{ fontSize: "12px" }}>
+                      <span>
+                        Bought: {p.buy_qty ? `${p.buy_qty} @ ${px(p.buy_avg)}` : "–"} · Sold: {p.sell_qty ? `${p.sell_qty} @ ${px(p.sell_avg)}` : "–"}
+                      </span>
+                    </div>
+
+                    <div className="m-card-acts">
+                      <button className="btn sm" onClick={() => open_(p, "B")}>
+                        + Buy
+                      </button>
+                      <button className="btn sm" onClick={() => open_(p, "S")}>
+                        + Sell
+                      </button>
+                      <button className="btn sm ghost icon" onClick={() => openChart(p.key, p.label)} title="Chart">
+                        <IconChart />
+                      </button>
+                      {p.open && (
+                        <button className="btn sm danger" onClick={() => askClose([p.key])}>
+                          Close
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </section>
 

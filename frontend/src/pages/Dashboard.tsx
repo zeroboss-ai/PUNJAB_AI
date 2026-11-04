@@ -69,7 +69,27 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="cards">{indices.map((i) => <IndexCard key={i.key} k={i.key} label={i.label} />)}</div>
+      <div className="cards indices-scroll">{indices.map((i) => <IndexCard key={i.key} k={i.key} label={i.label} />)}</div>
+
+      {/* Quick Mobile Shortcuts */}
+      <div className="m-shortcuts show-on-mobile">
+        <button className="m-shortcut-btn" onClick={() => navigate("/chain")}>
+          <span className="m-shortcut-icon">📊</span>
+          <span>Option Chain</span>
+        </button>
+        <button className="m-shortcut-btn" onClick={() => navigate("/watchlist")}>
+          <span className="m-shortcut-icon">⭐</span>
+          <span>Watchlist</span>
+        </button>
+        <button className="m-shortcut-btn" onClick={() => navigate("/orders")}>
+          <span className="m-shortcut-icon">📋</span>
+          <span>Orders</span>
+        </button>
+        <button className="m-shortcut-btn" onClick={() => navigate("/positions")}>
+          <span className="m-shortcut-icon">💼</span>
+          <span>Positions</span>
+        </button>
+      </div>
 
       <div className="cards-h">
         <h2>Commodities</h2>
@@ -77,7 +97,7 @@ export function Dashboard() {
         <span className="grow" />
         <button className="btn sm" onClick={() => navigate("/watchlist")}>Trade</button>
       </div>
-      <div className="cards">{commodities.map((c) => <IndexCard key={c.key} k={c.key} label={c.label} sub={c.contract?.replace(/^.*? (\d{2} \w{3}) FUT$/, "$1 FUT") ?? ""} />)}</div>
+      <div className="cards indices-scroll">{commodities.map((c) => <IndexCard key={c.key} k={c.key} label={c.label} sub={c.contract?.replace(/^.*? (\d{2} \w{3}) FUT$/, "$1 FUT") ?? ""} />)}</div>
 
       <div className="grid2">
         <section className="panel">
@@ -140,24 +160,46 @@ export function Dashboard() {
         {open.length === 0 ? (
           <Empty title="No open positions">Place a trade from the Watchlist, or start the algo.</Empty>
         ) : (
-          <div className="tscroll">
-            <table className="t">
-              <thead>
-                <tr><th>Instrument</th><th className="num">Qty</th><th className="num">Avg</th><th className="num">LTP</th><th className="num">P&amp;L</th></tr>
-              </thead>
-              <tbody>
-                {open.slice(0, 6).map((p) => (
-                  <tr key={p.key + p.product}>
-                    <td><div className="cell-name"><b>{p.label}</b><span>{p.product}</span></div></td>
-                    <td className="num">{int(p.net_qty)}</td>
-                    <td className="num">{px(p.avg_price)}</td>
-                    <td className="num">{px(p.ltp)}</td>
-                    <td className="num"><Pnl v={p.pnl} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="tscroll hide-on-mobile">
+              <table className="t">
+                <thead>
+                  <tr><th>Instrument</th><th className="num">Qty</th><th className="num">Avg</th><th className="num">LTP</th><th className="num">P&amp;L</th></tr>
+                </thead>
+                <tbody>
+                  {open.slice(0, 6).map((p) => (
+                    <tr key={p.key + p.product}>
+                      <td><div className="cell-name"><b>{p.label}</b><span>{p.product}</span></div></td>
+                      <td className="num">{int(p.net_qty)}</td>
+                      <td className="num">{px(p.avg_price)}</td>
+                      <td className="num">{px(p.ltp)}</td>
+                      <td className="num"><Pnl v={p.pnl} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="show-on-mobile" style={{ padding: "8px 10px" }}>
+              {open.slice(0, 5).map((p) => (
+                <div key={p.key + p.product} className="m-card" onClick={() => navigate("/positions")}>
+                  <div className="m-card-h">
+                    <div className="m-card-title">
+                      <b>{p.label}</b>
+                      <span className="chip flat">{p.product}</span>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: "15px" }}>
+                      <Pnl v={p.pnl} />
+                    </div>
+                  </div>
+                  <div className="m-card-b">
+                    <span>Qty: <b>{int(p.net_qty)}</b> · Avg: {px(p.avg_price)}</span>
+                    <span>LTP: <b>{px(p.ltp)}</b></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </section>
 
@@ -170,25 +212,45 @@ export function Dashboard() {
         {orders.length === 0 ? (
           <Empty title="No orders today" />
         ) : (
-          <div className="tscroll">
-            <table className="t">
-              <thead>
-                <tr><th>Time</th><th>Instrument</th><th>Side</th><th className="num">Qty</th><th className="num">Price</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id}>
-                    <td className="muted">{shortTime(o.time)}</td>
-                    <td>{o.label}</td>
-                    <td><span className={`chip ${o.side === "B" ? "buy" : "sell"}`}>{o.side === "B" ? "Buy" : "Sell"}</span></td>
-                    <td className="num">{int(o.qty)}</td>
-                    <td className="num">{o.avg_price ? px(o.avg_price) : o.price ? px(o.price) : "Market"}</td>
-                    <td><StatusChip s={o.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="tscroll hide-on-mobile">
+              <table className="t">
+                <thead>
+                  <tr><th>Time</th><th>Instrument</th><th>Side</th><th className="num">Qty</th><th className="num">Price</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {orders.map((o) => (
+                    <tr key={o.id}>
+                      <td className="muted">{shortTime(o.time)}</td>
+                      <td>{o.label}</td>
+                      <td><span className={`chip ${o.side === "B" ? "buy" : "sell"}`}>{o.side === "B" ? "Buy" : "Sell"}</span></td>
+                      <td className="num">{int(o.qty)}</td>
+                      <td className="num">{o.avg_price ? px(o.avg_price) : o.price ? px(o.price) : "Market"}</td>
+                      <td><StatusChip s={o.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="show-on-mobile" style={{ padding: "8px 10px" }}>
+              {orders.slice(0, 5).map((o) => (
+                <div key={o.id} className="m-card" onClick={() => navigate("/orders")}>
+                  <div className="m-card-h">
+                    <div className="m-card-title">
+                      <span className={`chip ${o.side === "B" ? "buy" : "sell"}`}>{o.side === "B" ? "Buy" : "Sell"}</span>
+                      <b>{o.label}</b>
+                    </div>
+                    <StatusChip s={o.status} />
+                  </div>
+                  <div className="m-card-b">
+                    <span>Qty: <b>{int(o.qty)}</b> · {o.avg_price ? px(o.avg_price) : o.price ? px(o.price) : "Market"}</span>
+                    <span>{shortTime(o.time)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </section>
     </>

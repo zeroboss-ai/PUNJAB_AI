@@ -185,9 +185,16 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
           </div>
         )}
         <header className="topbar">
-          <div className="tape" aria-label="Index prices">
-            {tapeItems.map((i) => <TapeItem key={i.key} k={i.key} label={i.label} />)}
-          </div>
+          {phone ? (
+            <div className="mobile-brand" onClick={() => navigate("/")} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: "none" }}>
+              <Logo />
+              <b style={{ fontSize: "14px", letterSpacing: "0.02em" }}>PUNJAB AI</b>
+            </div>
+          ) : (
+            <div className="tape" aria-label="Index prices">
+              {tapeItems.map((i) => <TapeItem key={i.key} k={i.key} label={i.label} />)}
+            </div>
+          )}
           <div className="topbar-right">
             <Clock />
             <StatusPills />
@@ -196,7 +203,7 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
             <button className="btn ghost icon sm" onClick={() => applyTheme(theme === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} title="Switch theme">
               {theme === "dark" ? <IconSun /> : <IconMoon />}
             </button>
-            <button className="btn ghost icon sm" onClick={logout} aria-label="Log out" title="Log out"><IconLogout /></button>
+            <button className="btn ghost icon sm hide-s" onClick={logout} aria-label="Log out" title="Log out"><IconLogout /></button>
           </div>
         </header>
         <main className="page">{children}</main>

@@ -2179,3 +2179,228 @@ progress {
   .chart-box { height: 56vh; min-height: 280px; }
   .chart-h .legend { white-space: normal; }
 }
+
+/* ==========================================================================
+   Mobile-First & Mobile Responsive Styles (Dashboard, Watchlist, Orders, Positions)
+   ========================================================================== */
+
+@media (max-width: 720px) {
+  .hide-on-mobile {
+    display: none !important;
+  }
+  .show-on-mobile {
+    display: block !important;
+  }
+  .show-on-mobile-flex {
+    display: flex !important;
+  }
+
+  /* Compact Mobile Topbar */
+  .topbar {
+    padding: 0 10px;
+    gap: 6px;
+    justify-content: space-between;
+    height: 48px;
+  }
+  .topbar-right {
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .topbar-right::-webkit-scrollbar {
+    display: none;
+  }
+  .banner {
+    padding: 4px 10px;
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  /* Indices Carousel on Mobile */
+  .cards.indices-scroll {
+    display: flex !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 10px !important;
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+    scrollbar-width: none;
+  }
+  .cards.indices-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  .cards.indices-scroll > .idx {
+    flex: 0 0 160px !important;
+    max-width: 160px;
+    scroll-snap-align: start;
+    padding: 10px 12px 8px !important;
+    border-radius: 8px;
+  }
+  .cards.indices-scroll .idx-name {
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .cards.indices-scroll .idx-val {
+    font-size: 18px;
+    font-weight: 650;
+    margin: 2px 0;
+  }
+  .cards.indices-scroll .idx-chg {
+    font-size: 11.5px;
+    gap: 4px;
+  }
+  .cards.indices-scroll .idx svg.spark {
+    top: 20px;
+    height: 28px;
+    width: 40%;
+  }
+  .cards.indices-scroll .range {
+    margin-top: 4px;
+  }
+
+  /* Quick Mobile Shortcuts */
+  .m-shortcuts {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .m-shortcut-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px 6px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    text-align: center;
+  }
+  .m-shortcut-btn:active {
+    background: var(--hover);
+  }
+  .m-shortcut-icon {
+    font-size: 18px;
+  }
+
+  /* Mobile Watchlist */
+  .m-watchlist-list {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .m-wl-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    background: var(--panel);
+    transition: background 0.15s ease;
+  }
+  .m-wl-item:last-child {
+    border-bottom: 0;
+  }
+  .m-wl-item:active {
+    background: var(--hover);
+  }
+  .m-wl-left {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .m-wl-name {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .m-wl-sub {
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .m-wl-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    flex: none;
+    margin-left: 10px;
+  }
+  .m-wl-px {
+    font-size: 15px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+  .m-wl-chg {
+    font-size: 11.5px;
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Mobile Cards for Orders and Positions */
+  .m-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .m-card-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .m-card-title {
+    font-size: 14.5px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .m-card-b {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .m-card-acts {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line-2);
+  }
+  .m-card-acts .btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+@media (min-width: 721px) {
+  .show-on-mobile,
+  .show-on-mobile-flex {
+    display: none !important;
+  }
+}

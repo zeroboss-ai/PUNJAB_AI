@@ -219,66 +219,144 @@ export function Orders() {
           filteredRows.length === 0 ? (
             <Empty title="No orders found">{rows.length === 0 ? "Orders you place from the Watchlist, Positions or the algo show up here." : "No orders match the selected filters."}</Empty>
           ) : (
-            <div className="tscroll">
+            <>
+              {/* Desktop Table View */}
+              <div className="tscroll hide-on-mobile">
+                <table className="t">
+                  <thead>
+                    <tr><th>Time</th><th>Instrument</th><th>Side</th><th className="num">Filled / Qty</th><th className="num">Price</th><th className="num">Avg fill</th><th>Status</th><th /></tr>
+                  </thead>
+                  <tbody>
+                    {filteredRows.map((o) => (
+                      <tr key={o.id} className={o.status === "CANCELLED" || o.status === "REJECTED" ? "dim" : ""}>
+                        <td className="muted">{shortTime(o.time)}</td>
+                        <td>
+                          <div className="cell-name">
+                            <b>{o.label || o.symbol}</b>
+                            <span>{o.account_label && <span className="chip flat" style={{ marginRight: 4 }}>{o.account_label}</span>}{o.product} · {OT[o.order_type] ?? o.order_type}{o.tag && o.tag !== "manual" ? ` · ${o.tag}` : ""}</span>
+                          </div>
+                        </td>
+                        <td><span className={`chip ${o.side === "B" ? "buy" : "sell"}`}>{o.side === "B" ? "Buy" : "Sell"}</span></td>
+                        <td className="num">{int(o.filled)} / {lotsLabel(o.qty, o.lot)}</td>
+                        <td className="num">{priceText(o)}</td>
+                        <td className="num">{o.avg_price ? px(o.avg_price) : dash}</td>
+                        <td>
+                          <StatusChip s={o.status} />
+                          {o.reason && <div className="hint" style={{ maxWidth: 260, marginTop: 3 }}>{o.reason}</div>}
+                        </td>
+                        <td>
+                          {o.open && (
+                            <div className="acts">
+                              <button className="btn sm" onClick={() => openTicket({ key: o.key, label: o.label || o.symbol, side: o.side, lot: o.lot, tick: 0.05, modify: o, account_id: o.account_id })}><IconEdit />Modify</button>
+                              <button className="btn sm danger" disabled={busyId === o.id} onClick={() => cancel(o)}><IconX />Cancel</button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Cards View */}
+              <div className="show-on-mobile" style={{ padding: "10px" }}>
+                {filteredRows.map((o) => (
+                  <div key={o.id} className="m-card" style={{ opacity: o.status === "CANCELLED" || o.status === "REJECTED" ? 0.7 : 1 }}>
+                    <div className="m-card-h">
+                      <div className="m-card-title">
+                        <span className={`chip ${o.side === "B" ? "buy" : "sell"}`}>{o.side === "B" ? "Buy" : "Sell"}</span>
+                        <b>{o.label || o.symbol}</b>
+                      </div>
+                      <StatusChip s={o.status} />
+                    </div>
+                    <div className="m-card-b">
+                      <div>
+                        <span>Qty: <b>{int(o.filled)} / {lotsLabel(o.qty, o.lot)}</b></span>
+                        <span style={{ marginLeft: 8 }}>Price: <b>{priceText(o)}</b></span>
+                      </div>
+                      <span>{shortTime(o.time)}</span>
+                    </div>
+                    <div className="m-card-b" style={{ fontSize: "12px" }}>
+                      <span>
+                        {o.account_label && <span className="chip flat" style={{ marginRight: 6 }}>{o.account_label}</span>}
+                        {o.product} · {OT[o.order_type] ?? o.order_type}
+                      </span>
+                      {o.avg_price ? <span>Avg: <b>{px(o.avg_price)}</b></span> : null}
+                    </div>
+                    {o.reason && <div className="hint" style={{ fontSize: "11.5px", color: "var(--down)", marginTop: 2 }}>{o.reason}</div>}
+                    {o.open && (
+                      <div className="m-card-acts">
+                        <button
+                          className="btn sm"
+                          onClick={() => openTicket({ key: o.key, label: o.label || o.symbol, side: o.side, lot: o.lot, tick: 0.05, modify: o, account_id: o.account_id })}
+                        >
+                          <IconEdit /> Modify
+                        </button>
+                        <button
+                          className="btn sm danger"
+                          disabled={busyId === o.id}
+                          onClick={() => cancel(o)}
+                        >
+                          <IconX /> Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )
+        ) : filteredTrades.length === 0 ? (
+          <Empty title="No trades found">{trades.length === 0 ? "Fills appear here as orders complete." : "No trades match the selected filters."}</Empty>
+        ) : (
+          <>
+            {/* Desktop Table View */}
+            <div className="tscroll hide-on-mobile">
               <table className="t">
                 <thead>
-                  <tr><th>Time</th><th>Instrument</th><th>Side</th><th className="num">Filled / Qty</th><th className="num">Price</th><th className="num">Avg fill</th><th>Status</th><th /></tr>
+                  <tr><th>Time</th><th>Instrument</th><th>Side</th><th className="num">Qty</th><th className="num">Price</th><th>Product</th><th>Order</th></tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((o) => (
-                    <tr key={o.id} className={o.status === "CANCELLED" || o.status === "REJECTED" ? "dim" : ""}>
-                      <td className="muted">{shortTime(o.time)}</td>
-                      <td>
-                        <div className="cell-name">
-                          <b>{o.label || o.symbol}</b>
-                          <span>{o.account_label && <span className="chip flat" style={{ marginRight: 4 }}>{o.account_label}</span>}{o.product} · {OT[o.order_type] ?? o.order_type}{o.tag && o.tag !== "manual" ? ` · ${o.tag}` : ""}</span>
-                        </div>
-                      </td>
-                      <td><span className={`chip ${o.side === "B" ? "buy" : "sell"}`}>{o.side === "B" ? "Buy" : "Sell"}</span></td>
-                      <td className="num">{int(o.filled)} / {lotsLabel(o.qty, o.lot)}</td>
-                      <td className="num">{priceText(o)}</td>
-                      <td className="num">{o.avg_price ? px(o.avg_price) : dash}</td>
-                      <td>
-                        <StatusChip s={o.status} />
-                        {o.reason && <div className="hint" style={{ maxWidth: 260, marginTop: 3 }}>{o.reason}</div>}
-                      </td>
-                      <td>
-                        {o.open && (
-                          <div className="acts">
-                            <button className="btn sm" onClick={() => openTicket({ key: o.key, label: o.label || o.symbol, side: o.side, lot: o.lot, tick: 0.05, modify: o, account_id: o.account_id })}><IconEdit />Modify</button>
-                            <button className="btn sm danger" disabled={busyId === o.id} onClick={() => cancel(o)}><IconX />Cancel</button>
-                          </div>
-                        )}
-                      </td>
+                  {filteredTrades.map((t, i) => (
+                    <tr key={t.trade_id || t.order_id + i}>
+                      <td className="muted">{shortTime(t.time)}</td>
+                      <td><b style={{ fontWeight: 600 }}>{t.label || t.symbol}</b>{t.account_label && <span className="chip flat" style={{ marginLeft: 6 }}>{t.account_label}</span>}</td>
+                      <td><span className={`chip ${t.side === "B" ? "buy" : "sell"}`}>{t.side === "B" ? "Buy" : "Sell"}</span></td>
+                      <td className="num">{int(t.qty)}</td>
+                      <td className="num">{px(t.price)}</td>
+                      <td>{t.product}</td>
+                      <td className="muted">{t.order_id}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )
-        ) : filteredTrades.length === 0 ? (
-          <Empty title="No trades found">{trades.length === 0 ? "Fills appear here as orders complete." : "No trades match the selected filters."}</Empty>
-        ) : (
-          <div className="tscroll">
-            <table className="t">
-              <thead>
-                <tr><th>Time</th><th>Instrument</th><th>Side</th><th className="num">Qty</th><th className="num">Price</th><th>Product</th><th>Order</th></tr>
-              </thead>
-              <tbody>
-                {filteredTrades.map((t, i) => (
-                  <tr key={t.trade_id || t.order_id + i}>
-                    <td className="muted">{shortTime(t.time)}</td>
-                    <td><b style={{ fontWeight: 600 }}>{t.label || t.symbol}</b>{t.account_label && <span className="chip flat" style={{ marginLeft: 6 }}>{t.account_label}</span>}</td>
-                    <td><span className={`chip ${t.side === "B" ? "buy" : "sell"}`}>{t.side === "B" ? "Buy" : "Sell"}</span></td>
-                    <td className="num">{int(t.qty)}</td>
-                    <td className="num">{px(t.price)}</td>
-                    <td>{t.product}</td>
-                    <td className="muted">{t.order_id}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+
+            {/* Mobile Trades View */}
+            <div className="show-on-mobile" style={{ padding: "10px" }}>
+              {filteredTrades.map((t, i) => (
+                <div key={t.trade_id || t.order_id + i} className="m-card">
+                  <div className="m-card-h">
+                    <div className="m-card-title">
+                      <span className={`chip ${t.side === "B" ? "buy" : "sell"}`}>{t.side === "B" ? "Buy" : "Sell"}</span>
+                      <b>{t.label || t.symbol}</b>
+                    </div>
+                    <span className="muted" style={{ fontSize: "12px" }}>{shortTime(t.time)}</span>
+                  </div>
+                  <div className="m-card-b">
+                    <span>Qty: <b>{int(t.qty)}</b> @ <b>{px(t.price)}</b></span>
+                    <span>{t.product}</span>
+                  </div>
+                  {t.account_label && (
+                    <div className="m-card-b" style={{ fontSize: "12px" }}>
+                      <span className="chip flat">{t.account_label}</span>
+                      <span className="muted">Ref: {t.order_id}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </section>
     </>
