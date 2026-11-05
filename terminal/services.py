@@ -172,6 +172,16 @@ class Services:
             return next(iter(self.sessions.values()))
         return getattr(self, "_default_session", None)
 
+    def get_valid_kotak_session(self):
+        """Return the active or first connected Kotak session that is currently logged in."""
+        sess = self.get_session()
+        if sess and getattr(sess, "logged_in", False) and getattr(sess, "client", None) is not None:
+            return sess
+        for s in self.sessions.values():
+            if s and getattr(s, "logged_in", False) and getattr(s, "client", None) is not None:
+                return s
+        return sess or getattr(self, "_default_session", None)
+
     @property
     def session(self):
         return self.get_session()
@@ -351,20 +361,20 @@ class Services:
                 raise RuntimeError(problem)
 
             if not self.feed:
-                self._kotak_ins = KotakInstruments(sess, self.cfg)
+                self._kotak_ins = KotakInstruments(self.get_valid_kotak_session, self.cfg)
                 cat = KotakCatalog(self._kotak_ins)
                 for c in self.index_cards():
                     seg, tok = c["key"].split("|", 1)
                     cat.register(Instrument(c["key"], seg, tok, c["label"], c["label"], "INDEX", tick=0.05))
                 self.catalog.set(cat)
-                feed = KotakFeed(sess, self.cfg)
+                feed = KotakFeed(self.get_valid_kotak_session, self.cfg)
                 feed.on_quote = self.hub.update
                 feed.start(lambda t: None)
                 self.feed = feed
                 self.hub.attach_feed(feed)
                 self.hub.want("dashboard", [c["key"] for c in self.index_cards()])
                 from .market.chain import KotakChainProvider
-                self.chain.set_provider(KotakChainProvider(sess, self.catalog))
+                self.chain.set_provider(KotakChainProvider(self.get_valid_kotak_session, self.catalog))
                 self._seed_defaults()
                 self.charts.start()
 
@@ -380,6 +390,8 @@ class Services:
             if not self.active_account_id:
                 self.active_account_id = aid
             self.connected = True
+            from .market.chain import KotakChainProvider
+            self.chain.set_provider(KotakChainProvider(self.get_valid_kotak_session, self.catalog))
             self.journal.ns = self.vault.journal_namespace(aid, self.mode)
             self.store.set("accounts.last", aid)
             self._start_journal_loop()
@@ -537,10 +549,13 @@ class Services:
                 self.feed = None
                 self.active_account_id = ""
                 self.journal.ns = None
+                self.chain.set_provider(None)
             else:
                 if self.active_account_id not in self.accounts:
                     self.active_account_id = next(iter(self.accounts.keys()))
                 self.connected = True
+                from .market.chain import KotakChainProvider
+                self.chain.set_provider(KotakChainProvider(self.get_valid_kotak_session, self.catalog))
 
     def shutdown(self) -> None:
         self._stopping.set()

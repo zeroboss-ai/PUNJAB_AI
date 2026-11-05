@@ -82,7 +82,8 @@ def resolve(words: list[str]) -> list[str]:
     ws = [w.upper() for w in words if w]
     if not ws:
         return []
-    exact = [c.name for c in COMMODITIES if any(w == c.name for w in ws)]
+    query_str = "".join(ws)
+    exact = [c.name for c in COMMODITIES if c.name == query_str or (len(ws) == 1 and ws[0] == c.name)]
     matched = [c.name for c in COMMODITIES if all(w in _hay(c) for w in ws)]
     out: list[str] = []
     for name in exact + matched:

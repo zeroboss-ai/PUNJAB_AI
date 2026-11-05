@@ -290,7 +290,8 @@ class KotakInstruments:
         key = (segment, now_ist().date())
         if key in self._cache:
             return self._cache[key]
-        client = getattr(self.s, "client", self.s)
+        sess = self.s() if callable(self.s) else self.s
+        client = getattr(sess, "client", sess)
         resp = client.scrip_master(exchange_segment=segment)
         url = self._csv_url(resp, segment)
         df = pd.read_csv(io.BytesIO(self._download(url)), low_memory=False,
@@ -419,13 +420,22 @@ class KotakFeed:
             except Exception as e:
                 log.warning("subscribe_scrips error: %r", e)
 
+    @property
+    def session(self):
+        return self.s() if callable(self.s) else self.s
+
     async def _main(self) -> None:
         from neo_api_client.websocket.feed import WsToken
         self._loop = asyncio.get_running_loop()
         self._pending = asyncio.Queue()
         while not self._stop.is_set():
             try:
-                async with self.s.client.create_websocket() as ws:
+                sess = self.session
+                client = getattr(sess, "client", None)
+                if not client or not getattr(sess, "logged_in", False):
+                    await asyncio.sleep(2)
+                    continue
+                async with client.create_websocket() as ws:
                     self.connected = True
                     with self._lock:
                         known = list(self._subs.values())

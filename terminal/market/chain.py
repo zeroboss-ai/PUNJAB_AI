@@ -260,12 +260,14 @@ class SampleChainProvider:
 
 COMMODITY_ALIASES = {
     # Typo / abbreviation mappings to official MCX underlying symbols:
-    "CRUDEM": "CRUDEOILM",
-    "CRUDEMINI": "CRUDEOILM",
+    "CRUDEM": "CRUDEOIL",
+    "CRUDEMINI": "CRUDEOIL",
+    "CRUDEOILM": "CRUDEOIL",
     "CRUDE": "CRUDEOIL",
     "NATGAS": "NATURALGAS",
-    "NATGASM": "NATGASMINI",
-    "NATURALGASM": "NATGASMINI",
+    "NATGASM": "NATURALGAS",
+    "NATGASMINI": "NATURALGAS",
+    "NATURALGASM": "NATURALGAS",
     "SILVERMINI": "SILVERM",
     "GOLDMINI": "GOLDM",
 }
@@ -281,6 +283,47 @@ class KotakChainProvider:
         self.s, self.cat, self.count = session, catalog, strike_count
         self._counts = [c for c in self.FULL_COUNTS if c > strike_count] + [strike_count]
         self.count_used: int | None = None      # the first count Kotak accepted; remembered so a refusal is not retried every refresh
+
+    def _get_session(self):
+        # 1. Callable getter (e.g. svc.get_valid_kotak_session)
+        if callable(self.s):
+            try:
+                res = self.s()
+                if res and getattr(res, "logged_in", False) and getattr(res, "client", None) is not None:
+                    return res
+            except Exception:
+                pass
+        # 2. Object with session getter or sessions attribute
+        if hasattr(self.s, "get_valid_kotak_session"):
+            try:
+                res = self.s.get_valid_kotak_session()
+                if res and getattr(res, "logged_in", False) and getattr(res, "client", None) is not None:
+                    return res
+            except Exception:
+                pass
+        if hasattr(self.s, "get_session"):
+            try:
+                res = self.s.get_session()
+                if res and getattr(res, "logged_in", False) and getattr(res, "client", None) is not None:
+                    return res
+            except Exception:
+                pass
+        if hasattr(self.s, "sessions") and isinstance(self.s.sessions, dict):
+            for s in self.s.sessions.values():
+                if s and getattr(s, "logged_in", False) and getattr(s, "client", None) is not None:
+                    return s
+        # 3. Direct session instance
+        if getattr(self.s, "logged_in", False) and getattr(self.s, "client", None) is not None:
+            return self.s
+        # 4. Try from catalog's instrument session
+        cat = getattr(self.cat, "inner", self.cat)
+        ins = getattr(cat, "ins", None)
+        sess = getattr(ins, "s", None)
+        if sess:
+            cand = sess() if callable(sess) else sess
+            if cand and getattr(cand, "logged_in", False) and getattr(cand, "client", None) is not None:
+                return cand
+        return None
 
     def _und(self, und: str) -> str:
         u = und.strip().upper()
@@ -343,9 +386,10 @@ class KotakChainProvider:
             raise ChainUnavailable(f"{target} is not in Kotak's F&O list (no options are listed for it). Use the search box to find the exact name.")
 
     def _client(self):
-        if not getattr(self.s, "logged_in", False) or self.s.client is None:
+        sess = self._get_session()
+        if not sess or not getattr(sess, "logged_in", False) or getattr(sess, "client", None) is None:
             raise ChainUnavailable("Not connected to Kotak yet.")
-        return self.s.client
+        return sess.client
 
     @staticmethod
     def _check(resp: Any, what: str) -> dict:
@@ -369,8 +413,21 @@ class KotakChainProvider:
     def expiries(self, und: str) -> list[str]:
         target = self._und(und)
         ex = self._exchange(target)
-        r = self._check(self._client().expiries(exchange=ex, underlying=target, instrument_type="option"), "expiry list")
-        out = r.get("expiries") or (r.get("data") or {}).get("expiries") or []
+        try:
+            r = self._check(self._client().expiries(exchange=ex, underlying=target, instrument_type="option"), "expiry list")
+            out = r.get("expiries") or (r.get("data") or {}).get("expiries") or []
+        except ChainUnavailable as e:
+            # If mini or variant has no options, try parent underlying (e.g. CRUDEOILM -> CRUDEOIL)
+            parent = target
+            for suffix in ("MINI", "M"):
+                if target.endswith(suffix):
+                    parent = target[:-len(suffix)]
+                    break
+            if parent != target and (self._mcx_known(parent) or cmd.is_commodity(parent)):
+                r = self._check(self._client().expiries(exchange=ex, underlying=parent, instrument_type="option"), "expiry list")
+                out = r.get("expiries") or (r.get("data") or {}).get("expiries") or []
+            else:
+                raise
         return sorted(d for d in (self._iso(x, ex) for x in out) if d)
 
     @staticmethod
@@ -422,6 +479,22 @@ class KotakChainProvider:
             if n == counts[0] or self.count_used is None:
                 self.count_used = n
             return r
+        # If mini or variant failed, try parent underlying
+        parent = target
+        for suffix in ("MINI", "M"):
+            if target.endswith(suffix):
+                parent = target[:-len(suffix)]
+                break
+        if parent != target and (self._mcx_known(parent) or cmd.is_commodity(parent)):
+            kw["underlying"] = parent
+            for n in counts:
+                try:
+                    r = self._check(self._client().option_chain(**kw, count=n), "option chain")
+                    return r
+                except ChainUnavailable as e:
+                    if "rate-limiting" in str(e) or "Not connected" in str(e):
+                        raise
+                    last = e
         raise last or ChainUnavailable("Kotak returned no option chain.")
 
     def fetch(self, und: str, expiry: str | None) -> RawChain:
@@ -444,7 +517,7 @@ class KotakChainProvider:
         spot_dict = d.get("spot") or {}
         fut_dict = d.get("future") or {}
         spot_val = _f(spot_dict.get("ltp")) or _f(fut_dict.get("ltp"))
-        raw = RawChain(target, exp_iso, lot, self._spot_key(target, exp_iso or expiry), spot_val, None)
+        raw = RawChain(und.upper(), exp_iso, lot, self._spot_key(target, exp_iso or expiry), spot_val, None)
         for side, kind in (("call", "CE"), ("put", "PE")):
             for it in d.get(side) or []:
                 ins = it.get("inst") or it.get("instrument") or {}

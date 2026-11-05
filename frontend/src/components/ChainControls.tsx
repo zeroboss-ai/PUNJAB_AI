@@ -55,7 +55,14 @@ export function ChainControls({ data, allowAll = true, extra }: { data: ChainDat
       </div>
       <div className="seg" role="group" aria-label="Commodity">
         {QUICK_CM.map(([name, label]) => (
-          <button key={name} aria-pressed={sel.underlying === name} onClick={() => setChainSel({ underlying: name })} title={`${label} options (MCX)`}>{label}</button>
+          <button
+            key={name}
+            aria-pressed={sel.underlying === name || (name === "CRUDEOIL" && sel.underlying === "CRUDEOILM")}
+            onClick={() => setChainSel({ underlying: name === "CRUDEOILM" ? "CRUDEOIL" : name })}
+            title={`${label} options (MCX)`}
+          >
+            {label}
+          </button>
         ))}
       </div>
       <UnderlyingSearch />
