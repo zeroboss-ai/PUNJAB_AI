@@ -536,6 +536,9 @@ def _definite(resp: dict) -> bool:
     return isinstance(status, int) and 400 <= status < 500       # 4xx = refused; 5xx/timeouts stay "unknown"
 
 
+_USED_KOTAK_TAGS: set[str] = set()
+
+
 def send_order(client, *, segment: str, symbol: str, side: str, qty: int, order_type: str, price: float = 0.0,
                trigger: float = 0.0, product: str = "MIS", validity: str = "DAY", tag: str = "") -> str:
     """Place one order through the SDK and return Kotak's order number.
@@ -545,12 +548,36 @@ def send_order(client, *, segment: str, symbol: str, side: str, qty: int, order_
     kw = dict(exchange_segment=segment, product=product, price="0" if mkt else _fmt(price), order_type=order_type,
               quantity=str(int(qty)), validity=validity, trading_symbol=symbol, transaction_type=side, amo="NO",
               disclosed_quantity="0", trigger_price=_fmt(trigger) if trigger else "0")
-    if tag and tag != "manual" and "tag" in inspect.signature(fn).parameters:        # `tag` exists in 3.0.9+
-        kw["tag"] = tag[:20]
+
+    # Kotak Neo maps `tag` to Client Order ID ("ig"), which MUST be strictly unique per order
+    # for the entire trading day. Sending a duplicate tag causes Kotak to refuse the order with:
+    # "Client Order Id Error Client OrderID already exists".
+    use_tag = tag and tag != "manual" and "tag" in inspect.signature(fn).parameters
+    if use_tag:
+        clean_tag = tag[:20]
+        if clean_tag not in _USED_KOTAK_TAGS:
+            kw["tag"] = clean_tag
+
     resp = fn(**kw)
     oid = _find(resp, ("nOrdNo",)) if isinstance(resp, dict) else None
     err = api_error(resp)
+
+    # If Kotak rejected because Client Order ID already exists (duplicate tag from earlier today or another run),
+    # immediately retry without the tag so the order goes through cleanly!
+    if err and isinstance(resp, dict):
+        resp_str = f"{resp.get('stat', '')} {resp.get('errMsg', '')} {resp.get('error', '')}"
+        if "Client Order" in resp_str or "OrderID already exists" in resp_str or "Order Id Error" in resp_str:
+            bad_tag = kw.pop("tag", None)
+            if bad_tag:
+                _USED_KOTAK_TAGS.add(bad_tag)
+            log.warning("Kotak rejected duplicate tag %r (%s). Retrying immediately without tag...", bad_tag, resp_str[:120])
+            resp = fn(**kw)
+            oid = _find(resp, ("nOrdNo",)) if isinstance(resp, dict) else None
+            err = api_error(resp)
+
     if err is None and oid is not None:
+        if "tag" in kw:
+            _USED_KOTAK_TAGS.add(kw["tag"])
         return str(oid)
     log.warning("place_order failed. payload=%s response=%s", kw, resp)
     text = f"place_order: {err or 'reply had no order number'} (resp: {resp})"

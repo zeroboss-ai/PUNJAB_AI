@@ -39,6 +39,7 @@ class KotakGateway:
 
     def __init__(self, session, catalog: Catalog, hub: QuoteHub) -> None:
         self.s, self.cat, self.hub = session, catalog, hub
+        self._order_tags: dict[str, str] = {}
 
     @property
     def client(self):
@@ -46,8 +47,11 @@ class KotakGateway:
 
     # ------------------------------------------------------------------ orders
     def place(self, inst: Instrument, t: OrderTicket, qty: int) -> str:
-        return send_order(self.client, segment=inst.segment, symbol=inst.symbol, side=t.side, qty=qty, order_type=t.order_type,
-                          price=t.price, trigger=t.trigger, product=t.product, validity=t.validity, tag=t.tag)
+        oid = send_order(self.client, segment=inst.segment, symbol=inst.symbol, side=t.side, qty=qty, order_type=t.order_type,
+                         price=t.price, trigger=t.trigger, product=t.product, validity=t.validity, tag=t.tag)
+        if oid and t.tag:
+            self._order_tags[str(oid)] = t.tag
+        return oid
 
     def modify(self, order_id: str, *, order_type: str, qty: int, price: float, trigger: float, validity: str) -> None:
         modify_order(self.client, order_id, order_type=order_type, qty=qty, price=price, trigger=trigger, validity=validity)
@@ -72,13 +76,15 @@ class KotakGateway:
             lot = int(_f(r.get("lotSz") or r.get("brdLtQty"), 1)) or 1
             rej = str(r.get("rejRsn") or "").strip()
             sym = str(r.get("trdSym") or "")
+            n_ord = str(r.get("nOrdNo") or "")
+            gui_tag = str(r.get("GuiOrdId") or "").strip()
             out.append(OrderRow(
-                id=str(r.get("nOrdNo") or ""), key=key, symbol=sym, label=sym, side=str(r.get("trnsTp") or ""),
+                id=n_ord, key=key, symbol=sym, label=sym, side=str(r.get("trnsTp") or ""),
                 qty=int(_f(r.get("qty"))), filled=int(_f(r.get("fldQty"))), lot=lot, product=str(r.get("prod") or ""),
                 order_type=str(r.get("prcTp") or ""), price=_f(r.get("prc")), trigger=_f(r.get("trgPrc")),
                 avg_price=_f(r.get("avgPrc")), status=map_state(str(r.get("ordSt") or r.get("stat") or "")),
                 reason="" if rej in ("", "--", "-", "NA") else rej, time=str(r.get("ordDtTm") or ""),
-                validity=str(r.get("vldt") or "DAY"), tag=str(r.get("GuiOrdId") or "")))
+                validity=str(r.get("vldt") or "DAY"), tag=self._order_tags.get(n_ord) or gui_tag))
         out.sort(key=lambda o: o.id, reverse=True)
         return out
 

@@ -171,6 +171,23 @@ def test_stop_order_and_market_order_params(parts):
     assert (s.client.placed["order_type"], s.client.placed["price"]) == ("MKT", "0")
 
 
+def test_duplicate_client_order_id_retries_without_tag(parts):
+    cfg, s = parts
+    attempts = []
+    def mock_place(*, tag=None, **kw):
+        payload = {"tag": tag, **kw} if tag is not None else kw.copy()
+        attempts.append(payload)
+        if tag is not None:
+            return {"stCode": 32, "errMsg": "error from core", "stat": "Put Order Response : PlaceOrderResponse Failed : Client Order Id Error Client OrderID already exists Data: 0"}
+        return {"nOrdNo": "26102699999", "stat": "Ok"}
+    s.client.place_order = mock_place
+    oid = KotakOrders(s, cfg).place(OrderRequest(contract(), "S", 75, "L", 93.95, tag="duplicate_tag"))
+    assert oid == "26102699999"
+    assert len(attempts) == 2
+    assert attempts[0].get("tag") == "duplicate_tag"
+    assert "tag" not in attempts[1]
+
+
 @pytest.mark.parametrize("reply, exc", [
     ({"stat": "Not_Ok", "emsg": "Insufficient margin", "stCode": 1004}, OrderError),            # Kotak refused
     ({"Error Message": "Complete the 2fa process before accessing this application"}, OrderError),
