@@ -539,3 +539,13 @@ def test_with_no_entry_limit_the_strategy_keeps_watching_after_its_stop_is_hit(w
     w.px("09:40:05", 24290, 108, 102)
     assert r.positions[0].status == "closed"
     assert r.status == "watching" and "limit" not in r.message.lower()
+
+
+def test_strategy_runs_on_selected_account_id(w):
+    d = tmpl("orb")
+    d["account_id"] = "acc_b"
+    sid = w.store.save_strategy(None, "account test", d)
+    r = w.eng.start(sid, threaded=False, account_id="acc_b")
+    assert r.account_id == "acc_b"
+    snap = r.snapshot()
+    assert snap["account_id"] == "acc_b"

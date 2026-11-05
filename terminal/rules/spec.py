@@ -112,6 +112,7 @@ class Strategy:
     exit: Exit = field(default_factory=Exit)
     limits: Limits = field(default_factory=Limits)
     note: str = ""
+    account_id: str = ""
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -237,6 +238,7 @@ def parse(raw: Any) -> tuple[Strategy | None, list[str], list[str]]:
     s.offset_ce = int(p.num(raw, "offset_ce", "Call strike offset", -20, 20, 0, integer=True))
     s.offset_pe = int(p.num(raw, "offset_pe", "Put strike offset", -20, 20, 0, integer=True))
     s.note = str(raw.get("note", ""))[:400]
+    s.account_id = str(raw.get("account_id", "") or "").strip()
 
     ents = raw.get("entries")
     if not isinstance(ents, list) or not ents:

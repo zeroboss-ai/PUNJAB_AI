@@ -15,6 +15,12 @@ interface ListResp {
 }
 
 function Card({ row, mode, connected, reload }: { row: StrategyRow; mode: string; connected: boolean; reload: () => void }) {
+  const sess = useSession();
+  const connectedAccounts = (sess?.accounts && sess.accounts.length > 0)
+    ? sess.accounts
+    : (sess?.account ? [sess.account] : []);
+  const defaultAid = row.state?.account_id || (row.spec as any)?.account_id || sess?.active_account_id || connectedAccounts[0]?.id || "";
+  const [targetAccount, setTargetAccount] = useState<string>(defaultAid);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ask, setAsk] = useState<null | "start" | "stop" | "delete">(null);
@@ -47,15 +53,34 @@ function Card({ row, mode, connected, reload }: { row: StrategyRow; mode: string
   }
 
   const tone = st?.status === "halted" ? "down" : active ? "up" : "flat";
+  const acctBadge = st?.account_label || (row.spec as any)?.account_id
+    ? (st?.account_label || connectedAccounts.find((a) => a.id === (row.spec as any)?.account_id)?.label || (row.spec as any)?.account_id)
+    : null;
+
   return (
     <section className="panel strat">
       <div className="strat-h">
         <div className="strat-title">
           <b>{row.name}</b>
           <span className={`chip ${tone}`}>{st ? STATUS_TEXT[st.status] ?? st.status : "Not running"}</span>
+          {acctBadge && <span className="chip flat" title={`Trading on ${acctBadge}`}>{acctBadge}</span>}
           {st?.pnl && st.positions?.length ? <span className={pnlClass(st.pnl.total)} style={{ fontWeight: 600 }}>{signedRupees(st.pnl.total)}</span> : null}
         </div>
         <div className="row">
+          {!active && connectedAccounts.length > 1 && (
+            <select
+              className="select sm"
+              style={{ padding: "2px 8px", fontSize: 12, height: 28, width: "auto" }}
+              value={targetAccount || sess?.active_account_id || connectedAccounts[0]?.id}
+              onChange={(e) => setTargetAccount(e.target.value)}
+              disabled={busy}
+              title="Select broker account to run this strategy"
+            >
+              {connectedAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.label}</option>
+              ))}
+            </select>
+          )}
           {!active && <button className="btn primary sm" disabled={busy || !row.valid || !connected} onClick={() => setAsk("start")}>Start</button>}
           {active && <button className="btn sm" disabled={busy} onClick={() => call(`/strategies/${row.id}/pause`, "POST", { paused: !st?.paused }, st?.paused ? "Resumed" : "Paused")}>{st?.paused ? "Allow entries" : "Pause entries"}</button>}
           {active && <button className="btn danger sm" disabled={busy} onClick={() => setAsk("stop")}>Stop and exit</button>}
@@ -84,9 +109,31 @@ function Card({ row, mode, connected, reload }: { row: StrategyRow; mode: string
         <Modal title={`Start “${row.name}”?`} onClose={() => !busy && setAsk(null)} footer={
           <>
             <button className="btn" onClick={() => setAsk(null)} disabled={busy}>Cancel</button>
-            <button className="btn primary" disabled={busy || (mode === "live" && !sure)} onClick={() => call(`/strategies/${row.id}/start`, "POST", { confirm_live: sure }, "Strategy started")}>Start</button>
+            <button className="btn primary" disabled={busy || (mode === "live" && !sure)} onClick={() => call(`/strategies/${row.id}/start`, "POST", { confirm_live: sure, account_id: targetAccount || sess?.active_account_id || connectedAccounts[0]?.id || "" }, "Strategy started")}>Start</button>
           </>
         }>
+          {connectedAccounts.length > 0 && (
+            <div style={{ marginBottom: 14, padding: "10px 12px", background: "var(--panel-2, #181c24)", borderRadius: 6, border: "1px solid var(--line, #333)" }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                Trade in Broker Account:
+              </label>
+              <select
+                className="select"
+                style={{ width: "100%", padding: "6px 8px" }}
+                value={targetAccount || sess?.active_account_id || connectedAccounts[0]?.id}
+                onChange={(e) => setTargetAccount(e.target.value)}
+              >
+                {connectedAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label} ({a.ucc || a.id})
+                  </option>
+                ))}
+              </select>
+              <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
+                Orders and positions for this strategy will execute on this account.
+              </div>
+            </div>
+          )}
           <ol className="plain">{row.summary.map((l, i) => <li key={i}>{l}</li>)}</ol>
           <ul style={{ margin: "10px 0 0 18px", padding: 0, lineHeight: 1.65 }}>
             <li>It trades by itself from now on, until it finishes, you stop it, or you press Stop all.</li>

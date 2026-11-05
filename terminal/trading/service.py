@@ -149,9 +149,10 @@ class TradingService:
 
     def place(self, t: OrderTicket, account_id: str | None = None) -> dict:
         inst, qty, value = self.validate(t)
-        gw = self.gateway(account_id)
-        if self.limits.block_after_loss and self.cfg.risk.max_daily_loss > 0 and not self._reduces_exposure(inst, t.side, qty, account_id=account_id):
-            pnl = self.day_pnl(account_id=account_id)
+        target_aid = account_id or getattr(t, "account_id", "") or None
+        gw = self.gateway(target_aid)
+        if self.limits.block_after_loss and self.cfg.risk.max_daily_loss > 0 and not self._reduces_exposure(inst, t.side, qty, account_id=target_aid):
+            pnl = self.day_pnl(account_id=target_aid)
             if pnl is None:
                 raise OrderError("Cannot read your positions to check the daily loss limit, so new exposure is blocked. "
                                  "Closing orders still work.")
@@ -163,10 +164,10 @@ class TradingService:
         except OrderUnknown:
             raise OrderUnknown("Kotak did not confirm the order. It may or may not have been placed - check the Orders page "
                                "before trying again.")
-        lbl = self.account_label(account_id)
-        log.info("order %s (%s, account %s): %s %s x%s %s", oid, t.tag, lbl or account_id or "default", t.side, inst.symbol, qty, t.order_type)
-        self._note_order(oid, inst, t, qty, account_id=account_id)
-        return {"order_id": oid, "qty": qty, "value": round(value, 2), "account_id": account_id or "", "account_label": lbl}
+        lbl = self.account_label(target_aid)
+        log.info("order %s (%s, account %s): %s %s x%s %s", oid, t.tag, lbl or target_aid or "default", t.side, inst.symbol, qty, t.order_type)
+        self._note_order(oid, inst, t, qty, account_id=target_aid)
+        return {"order_id": oid, "qty": qty, "value": round(value, 2), "account_id": target_aid or "", "account_label": lbl}
 
     def _note_order(self, oid: str, inst: Instrument, t: OrderTicket, qty: int, account_id: str | None = None) -> None:
         if self.on_order:

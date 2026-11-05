@@ -95,6 +95,9 @@ export function ConditionList({ list, onChange, max = 6, srcs }: { list: Conditi
 export function Builder() {
   useTitle("Strategy builder");
   const s = useSession();
+  const connectedAccounts = (s?.accounts && s.accounts.length > 0)
+    ? s.accounts
+    : (s?.account ? [s.account] : []);
   const params = useMemo(() => new URLSearchParams(location.search), []);
   const editId = params.get("id") ? Number(params.get("id")) : null;
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -222,6 +225,14 @@ export function Builder() {
                   {(["MIS", "NRML"] as const).map((p) => <button key={p} aria-pressed={spec.product === p} onClick={() => up({ product: p })}>{p === "MIS" ? "Intraday (MIS)" : "Carry (NRML)"}</button>)}
                 </div>
               </div>
+              {connectedAccounts.length > 1 && (
+                <div className="field"><label htmlFor="sacct">Account</label>
+                  <select id="sacct" className="select" value={spec.account_id || ""} onChange={(e) => up({ account_id: e.target.value })}>
+                    <option value="">Default (Active account)</option>
+                    {connectedAccounts.map((a) => <option key={a.id} value={a.id}>{a.label} ({a.ucc || a.id})</option>)}
+                  </select>
+                </div>
+              )}
               <div className="field"><label htmlFor="slock">Choose strikes at</label><input id="slock" className="input" type="time" value={spec.lock_time} onChange={(e) => up({ lock_time: e.target.value })} /></div>
               <div className="field"><label htmlFor="soce">Call strike offset</label><input id="soce" className="input num" type="number" min={-20} max={20} value={spec.offset_ce} onChange={(e) => up({ offset_ce: num(e.target.value) })} /></div>
               <div className="field"><label htmlFor="sope">Put strike offset</label><input id="sope" className="input num" type="number" min={-20} max={20} value={spec.offset_pe} onChange={(e) => up({ offset_pe: num(e.target.value) })} /></div>

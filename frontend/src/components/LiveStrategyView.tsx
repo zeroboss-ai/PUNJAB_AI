@@ -51,6 +51,7 @@ export function Live({ st }: { st: RunState }) {
       {st.halt && <div className="notice bad" role="alert"><b>Action required.</b> {st.halt}</div>}
       <dl className="kv">
         <dt>Status</dt><dd style={{ fontWeight: 600 }}>{STATUS_TEXT[st.status] ?? st.status}{st.paused ? " · new entries paused" : ""}</dd>
+        {st.account_label && <><dt>Account</dt><dd><b>{st.account_label}</b></dd></>}
         {st.message && <><dt>Now</dt><dd>{st.message}</dd></>}
         {!legsLive && st.legs && Object.keys(st.legs).length > 0 && <><dt>Strikes</dt><dd>{Object.entries(st.legs).map(([k, l]) => `${k === "CE" ? "Call" : "Put"} ${l.strike} @ ${px(l.ltp)}`).join(" · ")}{st.expiry ? ` · expiry ${st.expiry}` : ""}</dd></>}
         {legsLive && st.overall && <><dt>Whole strategy</dt><dd>{st.overall.reason ? `Ended: ${st.overall.reason}. ` : ""}{st.overall.floor != null ? `Profit locked: ${signedRupees(st.overall.floor)}. ` : ""}{st.overall.monitoring ? "Watching targets, trailing and re-entries." : "Monitoring of targets and re-entries is switched off (stop-loss orders stay)."}</dd></>}

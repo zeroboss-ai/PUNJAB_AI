@@ -50,6 +50,7 @@ export interface LegSpec {
   limits: { max_loss: number; slippage_pct: number };
   exit: { time: string; exchange_sl: boolean };
   note?: string;
+  account_id?: string;
 }
 
 export const UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY"];

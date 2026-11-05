@@ -20,7 +20,7 @@ def templates() -> list[dict]:
             [{**t, "engine": "rules", "title": t["title"] + " (rule blocks)"} for t in spec.templates()])
 
 
-def make_runner(sid: int, st, env):
+def make_runner(sid: int, st, env, account_id: str = ""):
     from .legrunner import LegRunner
     from .runner import Runner
-    return LegRunner(sid, st, env) if isinstance(st, legspec.LegStrategy) else Runner(sid, st, env)
+    return LegRunner(sid, st, env, account_id=account_id) if isinstance(st, legspec.LegStrategy) else Runner(sid, st, env, account_id=account_id)

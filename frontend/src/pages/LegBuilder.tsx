@@ -204,6 +204,10 @@ export function LegBuilder() {
   const s = useSession();
   const params = useMemo(() => new URLSearchParams(location.search), []);
   const editId = params.get("id") ? Number(params.get("id")) : null;
+  const sess = useSession();
+  const connectedAccounts = (sess?.accounts && sess.accounts.length > 0)
+    ? sess.accounts
+    : (sess?.account ? [sess.account] : []);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [spec, setSpec] = useState<LegSpec | null>(null);
   const [locked, setLocked] = useState(false);
@@ -339,6 +343,14 @@ export function LegBuilder() {
                 )}
               </div>
               <div className="field"><span className="lbl">Product</span><div className="seg" role="group" aria-label="Product"><button aria-pressed>Intraday (MIS)</button></div></div>
+              {connectedAccounts.length > 1 && (
+                <div className="field"><label htmlFor="lacct">Account</label>
+                  <select id="lacct" className="select" value={spec.account_id || ""} onChange={(e) => up({ account_id: e.target.value })}>
+                    <option value="">Default (Active account)</option>
+                    {connectedAccounts.map((a) => <option key={a.id} value={a.id}>{a.label} ({a.ucc || a.id})</option>)}
+                  </select>
+                </div>
+              )}
               {timeField("lentry", "Entry time", spec.entry_time, (entry_time) => up({ entry_time }))}
               {timeField("lexit", "Exit time", spec.exit.time, (time) => up({ exit: { ...spec.exit, time } }))}
               {timeField("llast", "Last entry time", spec.last_entry_time, (last_entry_time) => up({ last_entry_time }))}

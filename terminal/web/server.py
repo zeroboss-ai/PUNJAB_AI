@@ -152,6 +152,7 @@ class SampleDaysIn(BaseModel):
 
 class StartIn(BaseModel):
     confirm_live: bool = False
+    account_id: str = Field("", max_length=100)
 
 
 class NoteIn(BaseModel):
@@ -771,7 +772,14 @@ def create_app(svc: Services, password: str) -> FastAPI:
 
     @app.get("/api/strategies", dependencies=[Depends(auth)])
     def strategies_list():
-        return {"ok": True, "mode": svc.mode, "connected": svc.connected, "strategies": [strategy_row(r) for r in svc.store.list_strategies()]}
+        return {
+            "ok": True,
+            "mode": svc.mode,
+            "connected": svc.connected,
+            "accounts": list(svc.accounts.values()),
+            "active_account_id": svc.active_account_id,
+            "strategies": [strategy_row(r) for r in svc.store.list_strategies()],
+        }
 
     @app.get("/api/strategies/{sid}", dependencies=[Depends(auth)])
     def strategies_get(sid: int):
@@ -821,7 +829,7 @@ def create_app(svc: Services, password: str) -> FastAPI:
             if svc.mode == "live" and not body.confirm_live:
                 raise RuntimeError("Live mode: confirm that this strategy may place REAL orders")
             with order_lock:
-                svc.rules.start(sid)
+                svc.rules.start(sid, account_id=body.account_id)
             return {"ok": True}
         return guarded(go)
 

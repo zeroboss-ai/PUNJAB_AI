@@ -141,6 +141,7 @@ class LegStrategy:
     limits: LegLimits = field(default_factory=LegLimits)
     exit: ExitCfg = field(default_factory=ExitCfg)
     note: str = ""
+    account_id: str = ""
     version = 2                     # not a dataclass field on purpose
 
     def to_json(self) -> dict:
@@ -256,6 +257,7 @@ def parse(raw: Any) -> tuple[LegStrategy | None, list[str], list[str]]:
                 v = ""
         setattr(s, k, v)
     s.note = str(raw.get("note", ""))[:400]
+    s.account_id = str(raw.get("account_id", "") or "").strip()
 
     legs = raw.get("legs")
     if not isinstance(legs, list) or not legs:

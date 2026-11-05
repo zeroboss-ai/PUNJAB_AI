@@ -45,6 +45,7 @@ export interface Spec {
   };
   limits: { max_entries: number; window_start: string; window_end: string; max_loss: number; slippage_pct: number };
   note?: string;
+  account_id?: string;
 }
 
 export interface Template {
@@ -98,6 +99,8 @@ export interface RunState {
   status: "starting" | "waiting" | "watching" | "done" | "halted" | "stopped";
   paused: boolean;
   stop_requested?: boolean;
+  account_id?: string;
+  account_label?: string;
   message: string;
   halt: string;
   expiry?: string;

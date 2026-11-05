@@ -214,8 +214,9 @@ def _cmp(op: str, l: float, r: float, prev: tuple[float, float] | None) -> bool:
 
 # ------------------------------------------------------------------------------------------- runner
 class Runner:
-    def __init__(self, sid: int, spec: Strategy, env: Env) -> None:
+    def __init__(self, sid: int, spec: Strategy, env: Env, account_id: str = "") -> None:
         self.sid, self.s, self.env = sid, spec, env
+        self.account_id = (account_id or getattr(spec, "account_id", "") or "").strip()
         self.m, self.book, self.trading = env.market, env.book, env.trading
         self.owner = f"rules:{sid}"
         self.tag = _tag(spec.name)
@@ -576,16 +577,16 @@ class Runner:
                 self.say(f"The stop-loss level {sl:g} is already beyond the price {ltp:g} - not entering.", "warn")
                 return False
         try:
-            net0 = self.trading.net_qty(key, s.product)
+            net0 = self.trading.net_qty(key, s.product, account_id=self.account_id)
         except OrderError as e:
             net0 = None
         if net0 is None:
             self.say("Cannot read your positions, so the entry is skipped (it could not be checked).", "warn")
             return False
         price = self.trading.limit_through(key, r.side, ltp, lm.slippage_pct)
-        t = OrderTicket(key=key, side=r.side, lots=s.lots, product=s.product, order_type="L", price=price, tag=self.tag)
+        t = OrderTicket(key=key, side=r.side, lots=s.lots, product=s.product, order_type="L", price=price, tag=self.tag, account_id=self.account_id)
         try:
-            res = self.trading.place(t)
+            res = self.trading.place(t, account_id=self.account_id)
         except OrderUnknown as e:
             self.say(f"Entry reply unclear: {e}. Checking positions.", "warn")
             return self._settle_entry(r, key, None, net0, sl, ltp)
@@ -600,7 +601,7 @@ class Runner:
 
     def _held(self, key: str, side: str) -> int | None:
         """Units held in `key` in the direction of `side` (S = short units, B = long units), None if unreadable."""
-        net = self.trading.net_qty(key, self.s.product)
+        net = self.trading.net_qty(key, self.s.product, account_id=self.account_id)
         if net is None:
             return None
         return -net if side == "S" else net
@@ -619,7 +620,7 @@ class Runner:
         else:
             if self._sweep_open_orders(key) == "unknown":
                 return False
-        net1 = self.trading.net_qty(key, self.s.product)
+        net1 = self.trading.net_qty(key, self.s.product, account_id=self.account_id)
         if net1 is None:
             self.halt(f"Cannot read positions after the entry order for {leg['symbol']}. Check the Orders and Positions pages.")
             return False
@@ -663,7 +664,7 @@ class Runner:
     def _place_exchange_sl(self, pos: Pos) -> None:
         opp = "B" if pos.side == "S" else "S"
         try:
-            pos.sl_oid = self.trading.stop_exact(pos.key, opp, pos.qty, self.s.product, self.tag, pos.sl, self.s.limits.slippage_pct)
+            pos.sl_oid = self.trading.stop_exact(pos.key, opp, pos.qty, self.s.product, self.tag, pos.sl, self.s.limits.slippage_pct, account_id=self.account_id)
             self.say(f"Exchange stop-loss placed: trigger {pos.sl:g} (order {pos.sl_oid}). The software stop-loss stands down while it is active.", notable=True)
             pos.next_poll = self.now_ts + self.env.sl_poll_s
         except (OrderError, OrderUnknown) as e:
@@ -768,7 +769,7 @@ class Runner:
             qty = held - floor
             pct = max(self.s.limits.slippage_pct, 1.0) * attempt
             try:
-                oid = self.trading.close_exact(p.key, opp, qty, self.s.product, self.tag, pct)
+                oid = self.trading.close_exact(p.key, opp, qty, self.s.product, self.tag, pct, account_id=self.account_id)
             except OrderUnknown as e:
                 self.say(f"Exit reply unclear: {e}. Re-checking.", "warn")
                 if self._sweep_open_orders(p.key) == "unknown":
@@ -795,7 +796,7 @@ class Runner:
             p.status = "attention"
             if p.sl is not None and self.s.exit.exchange_sl:
                 try:
-                    p.sl_oid = self.trading.stop_exact(p.key, opp, held - floor, self.s.product, self.tag, p.sl, self.s.limits.slippage_pct)
+                    p.sl_oid = self.trading.stop_exact(p.key, opp, held - floor, self.s.product, self.tag, p.sl, self.s.limits.slippage_pct, account_id=self.account_id)
                     p.status = "open"
                 except (OrderError, OrderUnknown):
                     pass
@@ -883,7 +884,7 @@ class Runner:
         """Cancel every open order on this instrument and confirm none are left (a stray order could double-close)."""
         for _ in range(3):
             try:
-                rows = self.trading.open_orders(key)
+                rows = self.trading.open_orders(key, account_id=self.account_id)
             except OrderUnknown:
                 rows = None
             if rows is not None and not rows:
@@ -902,8 +903,10 @@ class Runner:
         legs = {}
         for leg, v in self.legs.items():
             legs[leg] = {**v, "ltp": self.m.ltp(v["key"])}
+        lbl = getattr(self.trading, "account_label", lambda aid: aid)(self.account_id) if hasattr(self.trading, "account_label") else self.account_id
         self._snap = {
             "id": self.sid, "name": self.s.name, "status": self.status, "paused": self.paused, "stop_requested": self.stop_requested,
+            "account_id": self.account_id, "account_label": lbl,
             "message": self.message, "halt": self.halt_reason, "expiry": self.expiry, "lot": self.lot, "legs": legs,
             "spot": {"key": self.spot_key, "ltp": self.m.ltp(self.spot_key) if self.spot_key else None},
             "rules": list(self.evals.values()), "exit_rule": self.exit_eval,
@@ -951,7 +954,7 @@ class RuleEngine:
             log.exception("could not write the strategy log")
 
     # ---- control
-    def start(self, sid: int, threaded: bool = True) -> Runner:
+    def start(self, sid: int, threaded: bool = True, account_id: str = "") -> Runner:
         row = self.store.get_strategy(sid)
         if row is None:
             raise KeyError("No such strategy")
@@ -959,12 +962,13 @@ class RuleEngine:
         spec, errs, _ = parse_any(row["spec"])
         if spec is None:
             raise ValueError("The strategy is not valid: " + "; ".join(errs))
+        target_aid = (account_id or getattr(spec, "account_id", "") or "").strip()
         with self._lock:
             old = self.runners.get(sid)
             if old and old.active:
                 raise RuntimeError("This strategy is already running")
-            self.trading.gateway()                                           # raises if not connected
-            r = make_runner(sid, spec, self.env)
+            self.trading.gateway(target_aid or None)                         # raises if target account not connected
+            r = make_runner(sid, spec, self.env, account_id=target_aid)
             r.start(threaded)
             self.runners[sid] = r
             return r

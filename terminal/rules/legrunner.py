@@ -73,8 +73,8 @@ class LegState:
 
 
 class LegRunner(Runner):
-    def __init__(self, sid: int, spec: LegStrategy, env: Env) -> None:
-        super().__init__(sid, spec, env)
+    def __init__(self, sid: int, spec: LegStrategy, env: Env, account_id: str = "") -> None:
+        super().__init__(sid, spec, env, account_id=account_id)
         self.lst: list[LegState] = [LegState(c) for c in spec.legs]
         self.by_id = {ls.cfg.id: ls for ls in self.lst}
         self.selected = False
@@ -588,17 +588,17 @@ class LegRunner(Runner):
             self._once(f"noprice-{c.id}", f"No price for {ls.symbol} yet - not entering.")
             return False
         try:
-            net0 = self.trading.net_qty(key, s.product)
+            net0 = self.trading.net_qty(key, s.product, account_id=self.account_id)
         except OrderError:
             net0 = None
         if net0 is None:
             self.say("Cannot read your positions, so the entry is skipped (it could not be checked).", "warn")
             return False
         price = self.trading.limit_through(key, side, ltp, s.limits.slippage_pct)
-        t = OrderTicket(key=key, side=side, lots=c.lots, product=s.product, order_type="L", price=price, tag=self.tag)
+        t = OrderTicket(key=key, side=side, lots=c.lots, product=s.product, order_type="L", price=price, tag=self.tag, account_id=self.account_id)
         self.say(f"{ls.title()} ({why}): {'SELL' if side == 'S' else 'BUY'} {ls.label}", notable=True)
         try:
-            res = self.trading.place(t)
+            res = self.trading.place(t, account_id=self.account_id)
         except OrderUnknown as e:
             self.say(f"Entry reply unclear: {e}. Checking positions.", "warn")
             return self._settle(ls, side, None, net0, ltp)
@@ -623,7 +623,7 @@ class LegRunner(Runner):
                     return False
         elif self._sweep_open_orders(key) == "unknown":
             return False
-        net1 = self.trading.net_qty(key, self.s.product)
+        net1 = self.trading.net_qty(key, self.s.product, account_id=self.account_id)
         if net1 is None:
             self.halt(f"Cannot read positions after the entry order for {ls.symbol}. Check the Orders and Positions pages.")
             return False
@@ -701,8 +701,10 @@ class LegRunner(Runner):
                 "strike_rule": strike_text(c.strike, c.kind) if c.segment == "options" else "the index future"}
 
     def _publish(self) -> None:
+        lbl = getattr(self.trading, "account_label", lambda aid: aid)(self.account_id) if hasattr(self.trading, "account_label") else self.account_id
         self._snap = {
             "id": self.sid, "name": self.s.name, "kind": "legs", "status": self.status, "paused": self.paused, "stop_requested": self.stop_requested,
+            "account_id": self.account_id, "account_label": lbl,
             "message": self.message, "halt": self.halt_reason, "expiry": self.expiry, "lot": self.lot, "legs": [self._leg_view(ls) for ls in self.lst],
             "spot": {"key": self.spot_key, "ltp": self.m.ltp(self.spot_key) if self.spot_key else None},
             "rules": [], "exit_rule": None,

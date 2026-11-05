@@ -18,6 +18,7 @@ class OrderTicket:
     trigger: float = 0.0
     validity: str = "DAY"          # DAY | IOC
     tag: str = "manual"
+    account_id: str = ""
 
 
 @dataclass
