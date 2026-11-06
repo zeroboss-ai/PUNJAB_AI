@@ -37,7 +37,7 @@ export function Legend({ items }: { items: { name: string; color: string }[] }) 
 }
 
 /** Calls and puts side by side for every strike. `diverging` lets bars go below zero (for OI change). */
-export function PairedBars({ rows, spot, maxPain, diverging = false, height = 290, label }: { rows: BarRow[]; spot: number | null; maxPain: number | null; diverging?: boolean; height?: number; label: string }) {
+export function PairedBars({ rows, spot, maxPain, diverging = false, height = 290, label, putFirst = true }: { rows: BarRow[]; spot: number | null; maxPain: number | null; diverging?: boolean; height?: number; label: string; putFirst?: boolean }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const n = rows.length;
@@ -83,8 +83,17 @@ export function PairedBars({ rows, spot, maxPain, diverging = false, height = 29
             };
             return (
               <g key={r.strike}>
-                {draw(r.ce, -bw - 1, "var(--ce)")}
-                {draw(r.pe, 1, "var(--pe)")}
+                {putFirst ? (
+                  <>
+                    {draw(r.pe, -bw - 1, "var(--pe)")}
+                    {draw(r.ce, 1, "var(--ce)")}
+                  </>
+                ) : (
+                  <>
+                    {draw(r.ce, -bw - 1, "var(--ce)")}
+                    {draw(r.pe, 1, "var(--pe)")}
+                  </>
+                )}
                 {i % every === 0 && <text x={cx(i)} y={height - 9} textAnchor="middle">{int(r.strike)}</text>}
               </g>
             );
@@ -107,8 +116,17 @@ export function PairedBars({ rows, spot, maxPain, diverging = false, height = 29
       {h && (
         <div className="tip" style={{ left: Math.min(Math.max(8, cx(hover!) - 75), Math.max(8, width - 170)), top: 6 }}>
           <b>{int(h.strike)}</b>
-          <div><span><i style={{ background: "var(--ce)" }} />Calls</span><span>{h.ce == null ? "–" : (diverging && h.ce > 0 ? "+" : "") + int(h.ce)}</span></div>
-          <div><span><i style={{ background: "var(--pe)" }} />Puts</span><span>{h.pe == null ? "–" : (diverging && h.pe > 0 ? "+" : "") + int(h.pe)}</span></div>
+          {putFirst ? (
+            <>
+              <div><span><i style={{ background: "var(--pe)" }} />Puts</span><span>{h.pe == null ? "–" : (diverging && h.pe > 0 ? "+" : "") + int(h.pe)}</span></div>
+              <div><span><i style={{ background: "var(--ce)" }} />Calls</span><span>{h.ce == null ? "–" : (diverging && h.ce > 0 ? "+" : "") + int(h.ce)}</span></div>
+            </>
+          ) : (
+            <>
+              <div><span><i style={{ background: "var(--ce)" }} />Calls</span><span>{h.ce == null ? "–" : (diverging && h.ce > 0 ? "+" : "") + int(h.ce)}</span></div>
+              <div><span><i style={{ background: "var(--pe)" }} />Puts</span><span>{h.pe == null ? "–" : (diverging && h.pe > 0 ? "+" : "") + int(h.pe)}</span></div>
+            </>
+          )}
         </div>
       )}
     </div>

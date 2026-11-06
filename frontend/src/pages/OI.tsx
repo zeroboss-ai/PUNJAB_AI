@@ -21,7 +21,7 @@ function Tile({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactN
   );
 }
 
-function Card({ title, sub, legend, children, table }: { title: string; sub?: string; legend?: boolean; children: React.ReactNode; table?: React.ReactNode }) {
+function Card({ title, sub, legend, children, table, footer }: { title: string; sub?: string; legend?: boolean; children: React.ReactNode; table?: React.ReactNode; footer?: React.ReactNode }) {
   const [asTable, setAsTable] = useState(false);
   return (
     <section className="panel">
@@ -32,8 +32,9 @@ function Card({ title, sub, legend, children, table }: { title: string; sub?: st
         {table && <button className="btn ghost sm" onClick={() => setAsTable((t) => !t)} aria-pressed={asTable}>{asTable ? "Show chart" : "Show as table"}</button>}
       </div>
       <div className="panel-b">
-        {legend && <div style={{ marginBottom: 8 }}><Legend items={[{ name: "Calls", color: CE }, { name: "Puts", color: PE }]} /></div>}
+        {legend && <div style={{ marginBottom: 8 }}><Legend items={[{ name: "Puts", color: PE }, { name: "Calls", color: CE }]} /></div>}
         {asTable && table ? table : children}
+        {footer && <div className="chart-foot">{footer}</div>}
       </div>
     </section>
   );
@@ -44,8 +45,8 @@ function StrikeTable({ rows, signedVals }: { rows: BarRow[]; signedVals?: boolea
   return (
     <div className="tscroll" style={{ maxHeight: 290, overflowY: "auto" }}>
       <table className="t">
-        <thead><tr><th className="num">Strike</th><th className="num">Calls</th><th className="num">Puts</th></tr></thead>
-        <tbody>{rows.map((r) => <tr key={r.strike}><td className="num">{int(r.strike)}</td><td className="num">{f(r.ce)}</td><td className="num">{f(r.pe)}</td></tr>)}</tbody>
+        <thead><tr><th className="num">Strike</th><th className="num">Puts</th><th className="num">Calls</th></tr></thead>
+        <tbody>{rows.map((r) => <tr key={r.strike}><td className="num">{int(r.strike)}</td><td className="num">{f(r.pe)}</td><td className="num">{f(r.ce)}</td></tr>)}</tbody>
       </table>
     </div>
   );
@@ -127,19 +128,75 @@ export function OIAnalysis() {
           <section className="panel chain-sum" style={{ marginBottom: 12 }}>
             <Tile k="PCR (put OI ÷ call OI)" v={s.pcr == null ? dash : s.pcr.toFixed(2)} sub={s.pcr_prev != null ? `Yesterday ${s.pcr_prev.toFixed(2)}` : undefined} />
             <Tile k="Max pain" v={s.max_pain == null ? dash : int(s.max_pain)} sub={dist != null ? `Spot is ${int(Math.abs(Math.round(dist)))} points ${dist >= 0 ? "above" : "below"}` : undefined} />
-            <Tile k="Total call OI" v={compact(s.ce_oi)} sub={`${s.ce_oi_chg >= 0 ? "+" : "−"}${compact(Math.abs(s.ce_oi_chg))} since yesterday`} />
             <Tile k="Total put OI" v={compact(s.pe_oi)} sub={`${s.pe_oi_chg >= 0 ? "+" : "−"}${compact(Math.abs(s.pe_oi_chg))} since yesterday`} />
-            <Tile k="Largest call OI" v={s.ce_top[0] ? int(s.ce_top[0].strike) : dash} sub={s.ce_top[1] ? `then ${s.ce_top.slice(1).map((t) => int(t.strike)).join(", ")}` : undefined} />
+            <Tile k="Total call OI" v={compact(s.ce_oi)} sub={`${s.ce_oi_chg >= 0 ? "+" : "−"}${compact(Math.abs(s.ce_oi_chg))} since yesterday`} />
             <Tile k="Largest put OI" v={s.pe_top[0] ? int(s.pe_top[0].strike) : dash} sub={s.pe_top[1] ? `then ${s.pe_top.slice(1).map((t) => int(t.strike)).join(", ")}` : undefined} />
+            <Tile k="Largest call OI" v={s.ce_top[0] ? int(s.ce_top[0].strike) : dash} sub={s.ce_top[1] ? `then ${s.ce_top.slice(1).map((t) => int(t.strike)).join(", ")}` : undefined} />
             <Tile k="ATM straddle" v={s.straddle == null ? dash : px(s.straddle)} sub={s.straddle_pct != null ? `${s.straddle_pct}% of spot` : undefined} />
           </section>
 
           <div className="charts">
-            <Card title="Open interest by strike" legend table={<StrikeTable rows={view.oi} />}>
-              <PairedBars rows={view.oi} spot={spot} maxPain={s.max_pain} label="Call and put open interest at each strike" />
+            <Card
+              title="Open interest by strike"
+              legend
+              table={<StrikeTable rows={view.oi} />}
+              footer={
+                <>
+                  <div className="chart-foot-stat">
+                    <span className="dot" style={{ background: PE }} />
+                    <span className="lbl">Total Put OI:</span>
+                    <span className="val">{compact(s.pe_oi)}</span>
+                    <span className="sub">({int(s.pe_oi)})</span>
+                  </div>
+                  <div className="chart-foot-stat">
+                    <span className="dot" style={{ background: CE }} />
+                    <span className="lbl">Total Call OI:</span>
+                    <span className="val">{compact(s.ce_oi)}</span>
+                    <span className="sub">({int(s.ce_oi)})</span>
+                  </div>
+                  <div className="chart-foot-stat">
+                    <span className="lbl">PCR:</span>
+                    <span className="val">{s.pcr == null ? dash : s.pcr.toFixed(2)}</span>
+                    <span className="sub">({s.pe_oi >= s.ce_oi ? `+${compact(s.pe_oi - s.ce_oi)} Puts lead` : `+${compact(s.ce_oi - s.pe_oi)} Calls lead`})</span>
+                  </div>
+                </>
+              }
+            >
+              <PairedBars rows={view.oi} spot={spot} maxPain={s.max_pain} label="Put and call open interest at each strike" putFirst />
             </Card>
-            <Card title="Change in OI since yesterday" legend table={<StrikeTable rows={view.chg} signedVals />}>
-              <PairedBars rows={view.chg} spot={spot} maxPain={null} diverging label="Change in call and put open interest at each strike since yesterday" />
+            <Card
+              title="Change in OI since yesterday"
+              legend
+              table={<StrikeTable rows={view.chg} signedVals />}
+              footer={
+                <>
+                  <div className="chart-foot-stat">
+                    <span className="dot" style={{ background: PE }} />
+                    <span className="lbl">Put OI Day Change:</span>
+                    <span className={`val ${s.pe_oi_chg >= 0 ? "up" : "down"}`}>
+                      {s.pe_oi_chg >= 0 ? "+" : "−"}{compact(Math.abs(s.pe_oi_chg))}
+                    </span>
+                    <span className="sub">({s.pe_oi_chg >= 0 ? "+" : ""}{int(s.pe_oi_chg)})</span>
+                  </div>
+                  <div className="chart-foot-stat">
+                    <span className="dot" style={{ background: CE }} />
+                    <span className="lbl">Call OI Day Change:</span>
+                    <span className={`val ${s.ce_oi_chg >= 0 ? "up" : "down"}`}>
+                      {s.ce_oi_chg >= 0 ? "+" : "−"}{compact(Math.abs(s.ce_oi_chg))}
+                    </span>
+                    <span className="sub">({s.ce_oi_chg >= 0 ? "+" : ""}{int(s.ce_oi_chg)})</span>
+                  </div>
+                  <div className="chart-foot-stat">
+                    <span className="lbl">Day Shift:</span>
+                    <span className={`val ${s.pe_oi_chg >= s.ce_oi_chg ? "up" : "down"}`}>
+                      {s.pe_oi_chg >= s.ce_oi_chg ? `+${compact(s.pe_oi_chg - s.ce_oi_chg)} Puts` : `+${compact(s.ce_oi_chg - s.pe_oi_chg)} Calls`}
+                    </span>
+                    <span className="sub">({s.pe_oi_chg >= s.ce_oi_chg ? "Put addition lead" : "Call addition lead"})</span>
+                  </div>
+                </>
+              }
+            >
+              <PairedBars rows={view.chg} spot={spot} maxPain={null} diverging label="Change in put and call open interest at each strike since yesterday" putFirst />
             </Card>
           </div>
 
@@ -152,12 +209,12 @@ export function OIAnalysis() {
                 <Empty title="Building today’s trend">The terminal records a point about once a minute while an option chain or OI page is open. Leave this page open to see the line.</Empty>
               )}
             </Card>
-            <Card title="Total call and put OI through the day" sub="recorded while the terminal runs" legend>
+            <Card title="Total put and call OI through the day" sub="recorded while the terminal runs" legend>
               {pts.length >= 2 ? (
-                <LineChart times={pts.map((p) => p.ts)} yFmt={(v) => compact(v)} label="Total call and put open interest through the day"
+                <LineChart times={pts.map((p) => p.ts)} yFmt={(v) => compact(v)} label="Total put and call open interest through the day"
                   series={[
-                    { name: "Calls", color: CE, values: pts.map((p) => p.ce_oi), fmt: (v) => int(v) },
                     { name: "Puts", color: PE, values: pts.map((p) => p.pe_oi), fmt: (v) => int(v) },
+                    { name: "Calls", color: CE, values: pts.map((p) => p.ce_oi), fmt: (v) => int(v) },
                   ]} />
               ) : (
                 <Empty title="Building today’s trend" />
@@ -166,8 +223,8 @@ export function OIAnalysis() {
           </div>
 
           <div className="charts">
-            <AddTable title="Biggest call OI additions" rows={view.ceAdds} data={data} kind="CE" />
             <AddTable title="Biggest put OI additions" rows={view.peAdds} data={data} kind="PE" />
+            <AddTable title="Biggest call OI additions" rows={view.ceAdds} data={data} kind="CE" />
           </div>
           <p className="hint">
             “Reading” compares price and OI against yesterday: price up with OI up is a long build-up, price down with OI up a short build-up, price up with OI down short covering, price down with OI down long unwinding. These are descriptions of what happened, not forecasts or advice.

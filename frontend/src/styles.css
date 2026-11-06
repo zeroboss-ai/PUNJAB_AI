@@ -1330,6 +1330,48 @@ td.ltp:has(+ td.strike) .ltp-wrap {
   border-radius: 2px;
   margin-right: 6px;
 }
+.chart-foot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.chart-foot-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.chart-foot-stat .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.chart-foot-stat .lbl {
+  color: var(--muted);
+  font-weight: 500;
+}
+.chart-foot-stat .val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.chart-foot-stat .val.up {
+  color: var(--up);
+}
+.chart-foot-stat .val.down {
+  color: var(--down);
+}
+.chart-foot-stat .sub {
+  color: var(--muted);
+  font-size: 11px;
+}
 .charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));

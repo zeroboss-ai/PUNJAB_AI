@@ -244,19 +244,19 @@ function FnO() {
                     <Tile k="Expiry" v={dayText(o.expiry).replace(/, \d{4}$/, "")} sub="nearest" />
                     <Tile k="Put-call ratio" v={o.pcr == null ? dash : o.pcr.toFixed(2)} sub="put OI ÷ call OI" />
                     <Tile k="Max pain" v={o.max_pain == null ? dash : int(o.max_pain)} />
-                    <Tile k="Call OI" v={compact(o.total_ce_oi)} sub={o.top_ce[0] ? `largest at ${int(o.top_ce[0].strike)}` : undefined} />
                     <Tile k="Put OI" v={compact(o.total_pe_oi)} sub={o.top_pe[0] ? `largest at ${int(o.top_pe[0].strike)}` : undefined} />
+                    <Tile k="Call OI" v={compact(o.total_ce_oi)} sub={o.top_ce[0] ? `largest at ${int(o.top_ce[0].strike)}` : undefined} />
                   </div>
                 </div>
               </section>
               <div className="charts">
                 <Panel title="Open interest by strike">
-                  <div style={{ marginBottom: 8 }}><Legend items={[{ name: "Calls", color: "var(--ce)" }, { name: "Puts", color: "var(--pe)" }]} /></div>
-                  <PairedBars rows={oi} spot={null} maxPain={null} label={`${und} call and put open interest at each strike`} />
+                  <div style={{ marginBottom: 8 }}><Legend items={[{ name: "Puts", color: "var(--pe)" }, { name: "Calls", color: "var(--ce)" }]} /></div>
+                  <PairedBars rows={oi} spot={null} maxPain={null} label={`${und} put and call open interest at each strike`} />
                 </Panel>
                 <Panel title="Change in OI on the day">
-                  <div style={{ marginBottom: 8 }}><Legend items={[{ name: "Calls", color: "var(--ce)" }, { name: "Puts", color: "var(--pe)" }]} /></div>
-                  <PairedBars rows={chg} spot={null} maxPain={null} diverging label={`${und} change in call and put open interest at each strike`} />
+                  <div style={{ marginBottom: 8 }}><Legend items={[{ name: "Puts", color: "var(--pe)" }, { name: "Calls", color: "var(--ce)" }]} /></div>
+                  <PairedBars rows={chg} spot={null} maxPain={null} diverging label={`${und} change in put and call open interest at each strike`} />
                 </Panel>
               </div>
             </>
