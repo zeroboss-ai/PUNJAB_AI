@@ -35,8 +35,8 @@ log = logging.getLogger("nse")
 WWW = "https://www.nseindia.com"
 ARCHIVE = "https://nsearchives.nseindia.com"
 FII_DII_URL = f"{WWW}/api/fiidiiTradeReact"
-COOKIE_PAGE = f"{WWW}/reports/fii-dii"
-ALT_COOKIE_PAGE = f"{WWW}"
+COOKIE_PAGE = f"{WWW}/option-chain"
+ALT_COOKIE_PAGE = f"{WWW}/reports/fii-dii"
 PUBLISH_AFTER = (18, 30)          # files are normally up in the evening; before this we start from the previous day
 LOOKBACK_DAYS = 10
 MIN_GAP_S = 1.0
@@ -242,12 +242,13 @@ BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.nseindia.com/all-reports",
     "Sec-Ch-Ua": '"Not A(Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
     "Sec-Ch-Ua-Mobile": "?0",
     "Sec-Ch-Ua-Platform": '"Windows"',
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-Site": "same-site",
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
 }
@@ -299,33 +300,35 @@ class NseClient:
         self._cookies = False
 
     # ---- plumbing
+    def _prime_cookies(self) -> None:
+        try:
+            self._session.get(COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
+        except Exception:
+            try:
+                self._session.get(ALT_COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
+            except Exception:
+                pass
+        self._cookies = True
+
     def _get(self, url: str, accept_json: bool = False):
         with self._lock:                                                       # one request at a time, spaced out
             wait = MIN_GAP_S - (self._clock() - self._last)
             if wait > 0:
                 self._sleep(wait)
             try:
-                headers = API_HEADERS if accept_json else BROWSER_HEADERS
                 if accept_json and not self._cookies:
-                    try:
-                        self._session.get(COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
-                    except Exception:
-                        try:
-                            self._session.get(ALT_COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
-                        except Exception:
-                            pass
-                    self._cookies = True
+                    self._prime_cookies()
+
+                headers = dict(API_HEADERS if accept_json else BROWSER_HEADERS)
+                if "nsearchives" in url:
+                    headers["Referer"] = f"{WWW}/all-reports"
+                    headers["Sec-Fetch-Site"] = "same-site"
 
                 r = self._session.get(url, headers=headers, timeout=20)
-                if r.status_code in (401, 403) and accept_json:                # cookies expired / refused: reset and refresh
+                if r.status_code in (401, 403):                                # cookies expired / refused: reset and refresh
                     log.info("NSE returned %s on %s; resetting session cookies and retrying", r.status_code, url)
                     self._init_session()
-                    try:
-                        self._session.get(ALT_COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
-                        self._session.get(COOKIE_PAGE, headers=BROWSER_HEADERS, timeout=15)
-                    except Exception:
-                        pass
-                    self._cookies = True
+                    self._prime_cookies()
                     r = self._session.get(url, headers=headers, timeout=20)
             except Exception as e:
                 raise NseError(f"Could not reach NSE ({type(e).__name__}). Check your internet and try again later.") from None
@@ -475,9 +478,31 @@ class NseService:
         for d in self.candidate_days():
             try:
                 return d, fetch(d)
-            except NseFileMissing as e:
+            except (NseFileMissing, NseError) as e:
                 last = e
         raise NseError(f"No file found for the last {LOOKBACK_DAYS} weekdays ({last}).")
+
+    def _find_cached_csv(self, prefix: str) -> tuple[date, str] | None:
+        try:
+            p_dir = getattr(self.p, "_dir", None)
+            if not p_dir or not Path(p_dir).exists():
+                return None
+            files = sorted(Path(p_dir).glob(f"{prefix}*.csv"), reverse=True)
+            for f in files:
+                m2 = re.search(r"(\d{4})(\d{2})(\d{2})", f.name)
+                m1 = re.search(r"(\d{2})(\d{2})(\d{4})", f.name)
+                d = None
+                if m2:
+                    d = date(int(m2.group(1)), int(m2.group(2)), int(m2.group(3)))
+                elif m1:
+                    d = date(int(m1.group(3)), int(m1.group(2)), int(m1.group(1)))
+                if d:
+                    text = f.read_text(encoding="utf-8", errors="replace")
+                    if text and not text.strip().startswith("<html"):
+                        return d, text
+        except Exception:
+            pass
+        return None
 
     def _check_day(self, day: str) -> date | None:
         if not day:
@@ -500,23 +525,14 @@ class NseService:
                     self.store.add_fii_dii(self.mode, rows, now)
                 except NseError as e:
                     err = str(e)
-                    self._fii_try = now - refresh_every_s + 60.0
                 except Exception as e:                                          # never let a surprise reach the screen as wrong data
                     log.exception("fii/dii")
                     err = f"Unexpected problem reading NSE's reply ({type(e).__name__})."
-                    self._fii_try = now - refresh_every_s + 60.0
         rows = self.store.fii_dii(self.mode, 60)
         if not rows:
             fallback = self.store.fii_dii("live", 60) or self.store.fii_dii("paper", 60)
             if fallback:
                 rows = fallback
-            elif err:
-                try:
-                    sample_rows = parse_fii_dii(SampleNse().fii_dii())
-                    self.store.add_fii_dii(self.mode, sample_rows, now)
-                    rows = sample_rows
-                except Exception:
-                    pass
         if not rows:
             return {"ok": False, "reason": "unavailable", "error": err or "No FII/DII figures yet."}
         return {"ok": True, "source": self.source, "rows": rows, "error": err,
@@ -524,6 +540,7 @@ class NseService:
 
     # ---- delivery report
     def delivery(self, day: str = "", q: str = "") -> dict:
+        err = ""
         try:
             d = self._check_day(day)
             dd, text = self._latest(self.p.delivery_csv, d)
@@ -531,11 +548,33 @@ class NseService:
             if self._parsed.get("del", (None,))[0] != key:
                 self._parsed["del"] = (key, parse_delivery(text, dd))
             return {"ok": True, "source": self.source, "day": dd.isoformat(), **delivery_view(self._parsed["del"][1], q)}
-        except NseError as e:
-            return {"ok": False, "reason": "unavailable", "error": str(e)}
+        except Exception as e:
+            err = str(e)
+            log.warning("delivery fetch failed (%s); trying cache/fallback", err)
+
+        if not day and getattr(self.p, "name", "") == "nse":
+            cached = self._find_cached_csv("sec_bhavdata_full_")
+            if cached:
+                c_day, text = cached
+                key = (c_day, len(text))
+                if self._parsed.get("del", (None,))[0] != key:
+                    self._parsed["del"] = (key, parse_delivery(text, c_day))
+                return {"ok": True, "source": self.source, "day": c_day.isoformat(), "error": err, **delivery_view(self._parsed["del"][1], q)}
+
+            try:
+                fb_day = self.candidate_days()[0]
+                text = SampleNse(today=lambda: fb_day).delivery_csv(fb_day)
+                key = (fb_day, len(text))
+                if self._parsed.get("del", (None,))[0] != key:
+                    self._parsed["del"] = (key, parse_delivery(text, fb_day))
+                return {"ok": True, "source": "sample", "day": fb_day.isoformat(), "error": err, **delivery_view(self._parsed["del"][1], q)}
+            except Exception:
+                pass
+        return {"ok": False, "reason": "unavailable", "error": err or "Delivery report unavailable."}
 
     # ---- F&O bhavcopy
     def fo(self, day: str = "") -> dict:
+        err = ""
         try:
             d = self._check_day(day)
             dd, text = self._latest(self.p.fo_csv, d)
@@ -543,5 +582,26 @@ class NseService:
             if self._parsed.get("fo", (None,))[0] != key:
                 self._parsed["fo"] = (key, parse_fo(text))
             return {"ok": True, "source": self.source, "day": dd.isoformat(), **fo_view(self._parsed["fo"][1])}
-        except NseError as e:
-            return {"ok": False, "reason": "unavailable", "error": str(e)}
+        except Exception as e:
+            err = str(e)
+            log.warning("fo fetch failed (%s); trying cache/fallback", err)
+
+        if not day and getattr(self.p, "name", "") == "nse":
+            cached = self._find_cached_csv("BhavCopy_NSE_FO_")
+            if cached:
+                c_day, text = cached
+                key = (c_day, len(text))
+                if self._parsed.get("fo", (None,))[0] != key:
+                    self._parsed["fo"] = (key, parse_fo(text))
+                return {"ok": True, "source": self.source, "day": c_day.isoformat(), "error": err, **fo_view(self._parsed["fo"][1])}
+
+            try:
+                fb_day = self.candidate_days()[0]
+                text = SampleNse(today=lambda: fb_day).fo_csv(fb_day)
+                key = (fb_day, len(text))
+                if self._parsed.get("fo", (None,))[0] != key:
+                    self._parsed["fo"] = (key, parse_fo(text))
+                return {"ok": True, "source": "sample", "day": fb_day.isoformat(), "error": err, **fo_view(self._parsed["fo"][1])}
+            except Exception:
+                pass
+        return {"ok": False, "reason": "unavailable", "error": err or "F&O positioning data unavailable."}
