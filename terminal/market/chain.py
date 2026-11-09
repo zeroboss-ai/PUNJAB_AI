@@ -267,14 +267,14 @@ class SampleChainProvider:
 
 COMMODITY_ALIASES = {
     # Typo / abbreviation mappings to official MCX underlying symbols:
-    "CRUDEM": "CRUDEOIL",
-    "CRUDEMINI": "CRUDEOIL",
-    "CRUDEOILM": "CRUDEOIL",
+    "CRUDEM": "CRUDEOILM",
+    "CRUDEMINI": "CRUDEOILM",
+    "CRUDEOILM": "CRUDEOILM",
     "CRUDE": "CRUDEOIL",
     "NATGAS": "NATURALGAS",
-    "NATGASM": "NATURALGAS",
-    "NATGASMINI": "NATURALGAS",
-    "NATURALGASM": "NATURALGAS",
+    "NATGASM": "NATGASMINI",
+    "NATGASMINI": "NATGASMINI",
+    "NATURALGASM": "NATGASMINI",
     "SILVERMINI": "SILVERM",
     "GOLDMINI": "GOLDM",
 }
@@ -420,21 +420,8 @@ class KotakChainProvider:
     def expiries(self, und: str) -> list[str]:
         target = self._und(und)
         ex = self._exchange(target)
-        try:
-            r = self._check(self._client().expiries(exchange=ex, underlying=target, instrument_type="option"), "expiry list")
-            out = r.get("expiries") or (r.get("data") or {}).get("expiries") or []
-        except ChainUnavailable as e:
-            # If mini or variant has no options, try parent underlying (e.g. CRUDEOILM -> CRUDEOIL)
-            parent = target
-            for suffix in ("MINI", "M"):
-                if target.endswith(suffix):
-                    parent = target[:-len(suffix)]
-                    break
-            if parent != target and (self._mcx_known(parent) or cmd.is_commodity(parent)):
-                r = self._check(self._client().expiries(exchange=ex, underlying=parent, instrument_type="option"), "expiry list")
-                out = r.get("expiries") or (r.get("data") or {}).get("expiries") or []
-            else:
-                raise
+        r = self._check(self._client().expiries(exchange=ex, underlying=target, instrument_type="option"), "expiry list")
+        out = r.get("expiries") or (r.get("data") or {}).get("expiries") or []
         return sorted(d for d in (self._iso(x, ex) for x in out) if d)
 
     @staticmethod
@@ -486,23 +473,7 @@ class KotakChainProvider:
             if n == counts[0] or self.count_used is None:
                 self.count_used = n
             return r
-        # If mini or variant failed, try parent underlying
-        parent = target
-        for suffix in ("MINI", "M"):
-            if target.endswith(suffix):
-                parent = target[:-len(suffix)]
-                break
-        if parent != target and (self._mcx_known(parent) or cmd.is_commodity(parent)):
-            kw["underlying"] = parent
-            for n in counts:
-                try:
-                    r = self._check(self._client().option_chain(**kw, count=n), "option chain")
-                    return r
-                except ChainUnavailable as e:
-                    if "rate-limiting" in str(e) or "Not connected" in str(e):
-                        raise
-                    last = e
-        raise last or ChainUnavailable("Kotak returned no option chain.")
+        raise last or ChainUnavailable(f"Kotak returned no option chain for {target}.")
 
     def fetch(self, und: str, expiry: str | None) -> RawChain:
         target = self._und(und)
@@ -515,16 +486,20 @@ class KotakChainProvider:
             mc = self._mcx()
             if mc is not None:
                 try:
-                    lot = int(mc.mcx_names().get(target, {}).get("lot") or 1)
+                    lot = int(mc.mcx_names().get(target, {}).get("lot") or 0)
                 except Exception:
-                    lot = 1
-            else:
-                lot = 1
+                    lot = 0
+            if lot <= 0:
+                lot = 10 if target in ("CRUDEOILM", "CRUDEM", "CRUDEMINI", "GOLDM") else (5 if target in ("SILVERM", "SILVERMINI") else 1)
+        if target in ("CRUDEOILM", "CRUDEM", "CRUDEMINI") and lot != 10:
+            lot = 10
+        if target in ("SILVERM", "SILVERMINI") and lot > 5:
+            lot = 5
         exp_iso = (self._iso(common.get("expiryDt"), self._exchange(target)) if common.get("expiryDt") else None) or (expiry or "")[:10]
         spot_dict = d.get("spot") or {}
         fut_dict = d.get("future") or {}
         spot_val = _f(spot_dict.get("ltp")) or _f(fut_dict.get("ltp"))
-        raw = RawChain(und.upper(), exp_iso, lot, self._spot_key(target, exp_iso or expiry), spot_val, None)
+        raw = RawChain(target, exp_iso, lot, self._spot_key(target, exp_iso or expiry), spot_val, None)
         for side, kind in (("call", "CE"), ("put", "PE")):
             for it in d.get(side) or []:
                 ins = it.get("inst") or it.get("instrument") or {}

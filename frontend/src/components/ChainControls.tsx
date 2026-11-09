@@ -57,8 +57,8 @@ export function ChainControls({ data, allowAll = true, extra }: { data: ChainDat
         {QUICK_CM.map(([name, label]) => (
           <button
             key={name}
-            aria-pressed={sel.underlying === name || (name === "CRUDEOIL" && sel.underlying === "CRUDEOILM")}
-            onClick={() => setChainSel({ underlying: name === "CRUDEOILM" ? "CRUDEOIL" : name })}
+            aria-pressed={sel.underlying === name}
+            onClick={() => setChainSel({ underlying: name })}
             title={`${label} options (MCX)`}
           >
             {label}
