@@ -1,32 +1,32 @@
 /* ───────────────────────────── tokens ───────────────────────────── */
 :root,
 :root[data-theme="dark"] {
-  --bg: #0b0f14;
-  --rail: #0e1319;
-  --panel: #121820;
-  --raised: #19212b;
-  --hover: #172029;
-  --line: #212b37;
-  --line-2: #2d3a4a;
-  --text: #e4e9ef;
-  --muted: #8b98a8;
-  --faint: #5d6978;
-  --accent: #f0a23b;
-  --accent-ink: #1b1204;
-  --accent-bg: rgba(240, 162, 59, 0.12);
-  --up: #2dbb82;
-  --down: #f0605f;
-  --up-bg: rgba(45, 187, 130, 0.13);
-  --down-bg: rgba(240, 96, 95, 0.13);
+  --bg: #260505;
+  --rail: #1e0404;
+  --panel: #310707;
+  --raised: #3c0a0a;
+  --hover: #461111;
+  --line: #481212;
+  --line-2: #5d1b1b;
+  --text: #f5ecea;
+  --muted: #b89894;
+  --faint: #7e5a55;
+  --accent: #ff6900;
+  --accent-ink: #ffffff;
+  --accent-bg: rgba(255, 105, 0, 0.15);
+  --up: #00c076;
+  --down: #e61b1b;
+  --up-bg: rgba(0, 192, 118, 0.14);
+  --down-bg: rgba(230, 27, 27, 0.14);
   --buy: #4a90f2;
   --sell: #ea5a4a;
   --buy-bg: rgba(74, 144, 242, 0.14);
   --sell-bg: rgba(234, 90, 74, 0.14);
   --warn: #e8b13a;
-  --focus: rgba(240, 162, 59, 0.55);
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-  --scrim: rgba(4, 7, 10, 0.62);
-  --ce: #d97232;
+  --focus: rgba(255, 105, 0, 0.55);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.65);
+  --scrim: rgba(20, 3, 3, 0.75);
+  --ce: #ff6900;
   --pe: #2c8fc8;
   color-scheme: dark;
 }

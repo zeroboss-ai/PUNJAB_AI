@@ -31,7 +31,7 @@ function css(name: string, fallback: string) {
   return v || fallback;
 }
 function palette() {
-  return { text: css("--muted", "#8b98a8"), line: css("--line", "#212b37"), up: css("--up", "#2dbb82"), down: css("--down", "#f0605f"), accent: css("--accent", "#f0a23b") };
+  return { text: css("--muted", "#b89894"), line: css("--line", "#481212"), up: css("--up", "#00c076"), down: css("--down", "#e61b1b"), accent: css("--accent", "#ff6900") };
 }
 const fmtTime = (t: number, withDate = true) => {
   const d = new Date(t * 1000);
