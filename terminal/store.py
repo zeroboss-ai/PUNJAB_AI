@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS wl_items (wl_id INTEGER NOT NULL REFERENCES watchlist
     key TEXT NOT NULL, meta TEXT NOT NULL, pos INTEGER NOT NULL, PRIMARY KEY (wl_id, key));
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS oi_series (day TEXT NOT NULL, und TEXT NOT NULL, expiry TEXT NOT NULL, ts REAL NOT NULL,
-    spot REAL, pcr REAL, ce_oi REAL, pe_oi REAL, max_pain REAL);
+    spot REAL, pcr REAL, ce_oi REAL, pe_oi REAL, max_pain REAL, straddle REAL, atm_ce REAL, atm_pe REAL);
 CREATE INDEX IF NOT EXISTS oi_series_k ON oi_series (day, und, expiry, ts);
 CREATE TABLE IF NOT EXISTS strategies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, spec TEXT NOT NULL,
     created REAL NOT NULL, updated REAL NOT NULL);
@@ -41,6 +41,11 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(SCHEMA)
+        for col in ("straddle REAL", "atm_ce REAL", "atm_pe REAL"):
+            try:
+                self._db.execute(f"ALTER TABLE oi_series ADD COLUMN {col}")
+            except Exception:
+                pass
         self._lock = threading.Lock()
 
     # ---- watchlists
@@ -153,15 +158,16 @@ class Store:
         return n
 
     # ---- intraday open-interest series (recorded while the terminal runs)
-    def add_oi_point(self, day: str, und: str, expiry: str, ts: float, spot, pcr, ce_oi, pe_oi, max_pain) -> None:
+    def add_oi_point(self, day: str, und: str, expiry: str, ts: float, spot, pcr, ce_oi, pe_oi, max_pain, straddle=None, atm_ce=None, atm_pe=None) -> None:
         with self._lock:
-            self._db.execute("INSERT INTO oi_series VALUES (?,?,?,?,?,?,?,?,?)", (day, und, expiry, ts, spot, pcr, ce_oi, pe_oi, max_pain))
+            self._db.execute("INSERT INTO oi_series (day, und, expiry, ts, spot, pcr, ce_oi, pe_oi, max_pain, straddle, atm_ce, atm_pe) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                             (day, und, expiry, ts, spot, pcr, ce_oi, pe_oi, max_pain, straddle, atm_ce, atm_pe))
             self._db.execute("DELETE FROM oi_series WHERE day < date(?, '-7 day')", (day,))
             self._db.commit()
 
     def oi_series(self, day: str, und: str, expiry: str) -> list[dict]:
         with self._lock:
-            rows = self._db.execute("SELECT ts, spot, pcr, ce_oi, pe_oi, max_pain FROM oi_series WHERE day=? AND und=? AND expiry=? ORDER BY ts",
+            rows = self._db.execute("SELECT ts, spot, pcr, ce_oi, pe_oi, max_pain, straddle, atm_ce, atm_pe FROM oi_series WHERE day=? AND und=? AND expiry=? ORDER BY ts",
                                     (day, und, expiry)).fetchall()
         return [dict(r) for r in rows]
 

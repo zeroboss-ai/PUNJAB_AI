@@ -11,9 +11,9 @@ import { useChain } from "./Chain";
 
 const CE = "var(--ce)", PE = "var(--pe)";
 
-function Tile({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactNode }) {
+function Tile({ k, v, sub, onClick }: { k: string; v: React.ReactNode; sub?: React.ReactNode; onClick?: () => void }) {
   return (
-    <div className="stat">
+    <div className={`stat ${onClick ? "clickable" : ""}`} onClick={onClick} style={onClick ? { cursor: "pointer" } : undefined}>
       <span className="k">{k}</span>
       <span className="v">{v}</span>
       {sub && <span className="hint">{sub}</span>}
@@ -21,22 +21,82 @@ function Tile({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactN
   );
 }
 
-function Card({ title, sub, legend, children, table, footer }: { title: string; sub?: string; legend?: boolean; children: React.ReactNode; table?: React.ReactNode; footer?: React.ReactNode }) {
+function Card({
+  title,
+  sub,
+  legend,
+  legendItems,
+  children,
+  table,
+  footer,
+  id,
+}: {
+  title: string;
+  sub?: string;
+  legend?: boolean;
+  legendItems?: { name: string; color: string }[];
+  children: React.ReactNode;
+  table?: React.ReactNode;
+  footer?: React.ReactNode;
+  id?: string;
+}) {
   const [asTable, setAsTable] = useState(false);
+  const items = legendItems ?? [{ name: "Puts", color: PE }, { name: "Calls", color: CE }];
   return (
-    <section className="panel">
+    <section className="panel" id={id}>
       <div className="panel-h">
         <span>{title}</span>
         {sub && <span className="sub">{sub}</span>}
         <span className="grow" />
-        {table && <button className="btn ghost sm" onClick={() => setAsTable((t) => !t)} aria-pressed={asTable}>{asTable ? "Show chart" : "Show as table"}</button>}
+        {table && (
+          <button className="btn ghost sm" onClick={() => setAsTable((t) => !t)} aria-pressed={asTable}>
+            {asTable ? "Show chart" : "Show as table"}
+          </button>
+        )}
       </div>
       <div className="panel-b">
-        {legend && <div style={{ marginBottom: 8 }}><Legend items={[{ name: "Puts", color: PE }, { name: "Calls", color: CE }]} /></div>}
+        {(legend || legendItems) && (
+          <div style={{ marginBottom: 8 }}>
+            <Legend items={items} />
+          </div>
+        )}
         {asTable && table ? table : children}
         {footer && <div className="chart-foot">{footer}</div>}
       </div>
     </section>
+  );
+}
+
+function StraddleTable({ points }: { points: OiPoint[] }) {
+  const hm = (t: number) =>
+    new Date(t * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
+  return (
+    <div className="tscroll" style={{ maxHeight: 290, overflowY: "auto" }}>
+      <table className="t">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th className="num">Spot</th>
+            <th className="num">ATM Call</th>
+            <th className="num">ATM Put</th>
+            <th className="num">Straddle (CE+PE)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {points.slice().reverse().map((p) => (
+            <tr key={p.ts}>
+              <td>{hm(p.ts)}</td>
+              <td className="num">{p.spot != null ? px(p.spot) : dash}</td>
+              <td className="num" style={{ color: CE }}>{p.atm_ce != null ? px(p.atm_ce) : dash}</td>
+              <td className="num" style={{ color: PE }}>{p.atm_pe != null ? px(p.atm_pe) : dash}</td>
+              <td className="num">
+                <b style={{ fontWeight: 650, color: "var(--accent)" }}>{p.straddle != null ? px(p.straddle) : dash}</b>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -105,7 +165,33 @@ export function OIAnalysis() {
 
   const s = data?.summary;
   const problem = raw && !raw.ok ? raw : null;
-  const pts = (series.data?.points ?? []).filter((p) => p.pcr != null);
+  const rawPts = (series.data?.points ?? []).filter((p) => p.pcr != null);
+  const pts = useMemo(() => {
+    const list = [...rawPts];
+    if (data && s && s.pcr != null) {
+      const nowS = Math.floor(Date.now() / 1000);
+      const last = list[list.length - 1];
+      if (!last || nowS - last.ts >= 30) {
+        list.push({
+          ts: nowS,
+          spot: spot,
+          pcr: s.pcr,
+          ce_oi: s.ce_oi,
+          pe_oi: s.pe_oi,
+          max_pain: s.max_pain,
+          straddle: s.straddle,
+          atm_ce: s.atm_ce,
+          atm_pe: s.atm_pe,
+        });
+      }
+    }
+    return list;
+  }, [rawPts, data, s, spot]);
+
+  const straddlePts = useMemo(() => {
+    return pts.filter((p) => p.straddle != null && p.straddle > 0);
+  }, [pts]);
+  const hasLegs = straddlePts.some((p) => p.atm_ce != null || p.atm_pe != null);
   const dist = spot != null && s?.max_pain != null ? spot - s.max_pain : null;
 
   return (
@@ -132,7 +218,12 @@ export function OIAnalysis() {
             <Tile k="Total call OI" v={compact(s.ce_oi)} sub={`${s.ce_oi_chg >= 0 ? "+" : "−"}${compact(Math.abs(s.ce_oi_chg))} since yesterday`} />
             <Tile k="Largest put OI" v={s.pe_top[0] ? int(s.pe_top[0].strike) : dash} sub={s.pe_top[1] ? `then ${s.pe_top.slice(1).map((t) => int(t.strike)).join(", ")}` : undefined} />
             <Tile k="Largest call OI" v={s.ce_top[0] ? int(s.ce_top[0].strike) : dash} sub={s.ce_top[1] ? `then ${s.ce_top.slice(1).map((t) => int(t.strike)).join(", ")}` : undefined} />
-            <Tile k="ATM straddle" v={s.straddle == null ? dash : px(s.straddle)} sub={s.straddle_pct != null ? `${s.straddle_pct}% of spot` : undefined} />
+            <Tile
+              k="ATM straddle"
+              v={s.straddle == null ? dash : px(s.straddle)}
+              sub={s.straddle_pct != null ? `${s.straddle_pct}% of spot · Tap for chart` : "Tap for chart"}
+              onClick={() => document.getElementById("straddle-chart")?.scrollIntoView({ behavior: "smooth" })}
+            />
           </section>
 
           <div className="charts">
@@ -197,6 +288,77 @@ export function OIAnalysis() {
               }
             >
               <PairedBars rows={view.chg} spot={spot} maxPain={null} diverging label="Change in put and call open interest at each strike since yesterday" putFirst />
+            </Card>
+          </div>
+
+          <div className="charts" style={{ gridTemplateColumns: "1fr" }}>
+            <Card
+              id="straddle-chart"
+              title="ATM straddle through the day"
+              sub={data.atm != null ? `ATM strike ${int(data.atm)} · combined Call + Put premium` : "recorded while the terminal runs"}
+              legendItems={
+                hasLegs
+                  ? [
+                      { name: "Straddle (CE+PE)", color: "var(--accent)" },
+                      { name: "ATM Call", color: CE },
+                      { name: "ATM Put", color: PE },
+                    ]
+                  : [{ name: "Straddle (CE+PE)", color: "var(--accent)" }]
+              }
+              table={<StraddleTable points={straddlePts} />}
+              footer={
+                s.straddle != null ? (
+                  <>
+                    <div className="chart-foot-stat">
+                      <span className="dot" style={{ background: "var(--accent)" }} />
+                      <span className="lbl">ATM Straddle:</span>
+                      <span className="val">{px(s.straddle)}</span>
+                      {s.straddle_pct != null && <span className="sub">({s.straddle_pct}% of spot)</span>}
+                    </div>
+                    {s.atm_ce != null && (
+                      <div className="chart-foot-stat">
+                        <span className="dot" style={{ background: CE }} />
+                        <span className="lbl">ATM Call LTP:</span>
+                        <span className="val">{px(s.atm_ce)}</span>
+                      </div>
+                    )}
+                    {s.atm_pe != null && (
+                      <div className="chart-foot-stat">
+                        <span className="dot" style={{ background: PE }} />
+                        <span className="lbl">ATM Put LTP:</span>
+                        <span className="val">{px(s.atm_pe)}</span>
+                      </div>
+                    )}
+                    {data.atm != null && (
+                      <div className="chart-foot-stat">
+                        <span className="lbl">Strike:</span>
+                        <span className="val">{int(data.atm)}</span>
+                      </div>
+                    )}
+                  </>
+                ) : undefined
+              }
+            >
+              {straddlePts.length >= 2 ? (
+                <LineChart
+                  times={straddlePts.map((p) => p.ts)}
+                  yFmt={(v: number) => px(v)}
+                  label="ATM straddle premium through the day"
+                  series={[
+                    { name: "Straddle (CE+PE)", color: "var(--accent)", values: straddlePts.map((p) => p.straddle ?? null), fmt: (v: number) => px(v) },
+                    ...(hasLegs
+                      ? [
+                          { name: "ATM Call", color: CE, values: straddlePts.map((p) => p.atm_ce ?? null), fmt: (v: number) => px(v) },
+                          { name: "ATM Put", color: PE, values: straddlePts.map((p) => p.atm_pe ?? null), fmt: (v: number) => px(v) },
+                        ]
+                      : []),
+                  ]}
+                />
+              ) : (
+                <Empty title="Building today’s trend">
+                  The terminal records ATM straddle prices once a minute while an option chain or OI page is open. Leave this page open to see the line.
+                </Empty>
+              )}
             </Card>
           </div>
 

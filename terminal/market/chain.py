@@ -153,10 +153,15 @@ def analyse(raw: RawChain, hub: QuoteHub, window: int | None) -> dict:
         return [{"strike": k, "oi": v} for k, v in sorted(d.items(), key=lambda kv: -kv[1])[:n]]
 
     straddle = None
+    atm_ce = None
+    atm_pe = None
     if atm is not None:
         r = next((r for r in rows if r["strike"] == atm), None)
-        if r and r["ce"] and r["pe"] and r["ce"]["ltp"] is not None and r["pe"]["ltp"] is not None:
-            straddle = round(r["ce"]["ltp"] + r["pe"]["ltp"], 2)
+        if r and r["ce"] and r["pe"]:
+            atm_ce = r["ce"]["ltp"]
+            atm_pe = r["pe"]["ltp"]
+            if atm_ce is not None and atm_pe is not None:
+                straddle = round(atm_ce + atm_pe, 2)
 
     # trim the displayed window around ATM (the analysis above always uses every strike we have)
     shown = rows
@@ -174,6 +179,8 @@ def analyse(raw: RawChain, hub: QuoteHub, window: int | None) -> dict:
             "ce_top": top(ce_oi), "pe_top": top(pe_oi),
             "straddle": straddle,
             "straddle_pct": round(straddle / spot * 100, 2) if straddle and spot else None,
+            "atm_ce": atm_ce,
+            "atm_pe": atm_pe,
         },
     }
 
@@ -688,7 +695,9 @@ class ChainService:
             return
         self._last_series[k] = now
         try:
-            self.store.add_oi_point(now_ist().date().isoformat(), self._ns(und), expiry, now, out["spot"], s["pcr"], s["ce_oi"], s["pe_oi"], s["max_pain"])
+            self.store.add_oi_point(now_ist().date().isoformat(), self._ns(und), expiry, now, out["spot"],
+                                    s["pcr"], s["ce_oi"], s["pe_oi"], s["max_pain"],
+                                    s.get("straddle"), s.get("atm_ce"), s.get("atm_pe"))
         except Exception:
             log.exception("could not record OI point")
 

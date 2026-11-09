@@ -31,6 +31,8 @@ export interface ChainSummary {
   pe_top: { strike: number; oi: number }[];
   straddle: number | null;
   straddle_pct: number | null;
+  atm_ce?: number | null;
+  atm_pe?: number | null;
 }
 export interface ChainData {
   ok: boolean;
@@ -64,6 +66,9 @@ export interface OiPoint {
   ce_oi: number;
   pe_oi: number;
   max_pain: number | null;
+  straddle?: number | null;
+  atm_ce?: number | null;
+  atm_pe?: number | null;
 }
 
 interface Sel {
