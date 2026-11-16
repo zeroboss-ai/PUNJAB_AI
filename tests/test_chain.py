@@ -336,3 +336,15 @@ def test_live_prices_are_followed_for_the_strikes_nearest_the_money_only():
     followed = svc._followed
     assert len(followed) == 60 * 2 + 1 and "nse_cm|Nifty 50" in followed
     assert "nse_fo|10001" in followed and "nse_fo|9201" not in followed and "nse_fo|10802" not in followed      # ATM in, far strikes out
+
+
+def test_chain_futures_endpoint(env):
+    svc, c = env
+    r = c.get("/api/chain/futures", params={"underlying": "NIFTY"}).json()
+    assert r["ok"] is True
+    assert r["underlying"] == "NIFTY"
+    assert len(r["futures"]) > 0
+    assert r["futures"][0]["name"] == "NIFTY"
+    assert "FUT" in r["futures"][0]["symbol"]
+    assert r["futures"][0]["lot"] > 0
+

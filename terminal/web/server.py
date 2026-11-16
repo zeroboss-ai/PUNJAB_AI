@@ -654,6 +654,33 @@ def create_app(svc: Services, password: str) -> FastAPI:
             raise HTTPException(422, "Bad underlying or expiry")
         return {"ok": True, "points": svc.chain.series(und, expiry)}
 
+    @app.get("/api/chain/futures", dependencies=[Depends(auth)])
+    def chain_futures(underlying: str = "NIFTY"):
+        und = underlying.strip().upper()
+        if not UND_RE.match(und):
+            raise HTTPException(422, "Bad underlying")
+        hits = svc.catalog.search(f"{und} FUT", 15) if svc.catalog else []
+        futs = [h for h in hits if getattr(h, "kind", "") == "FUT" and getattr(h, "name", "") == und]
+        if not futs:
+            futs = [h for h in hits if getattr(h, "kind", "") == "FUT" and getattr(h, "symbol", "").startswith(und)]
+        futs = sorted(futs, key=lambda f: f.expiry or date.max)
+        out = []
+        for f in futs:
+            q = svc.hub.get(f.key) if svc.hub else None
+            ltp = q.ltp if q else None
+            pc = q.prev_close if q and q.prev_close else None
+            out.append({
+                "key": f.key,
+                "symbol": f.symbol,
+                "name": f.name,
+                "expiry": f.expiry.isoformat() if f.expiry else None,
+                "lot": f.lot,
+                "tick": f.tick,
+                "ltp": ltp,
+                "pc": pc,
+            })
+        return {"ok": True, "underlying": und, "futures": out}
+
     # ------------------------------------------------------------------- rule strategies helpers
     def guarded(fn):
         def go():

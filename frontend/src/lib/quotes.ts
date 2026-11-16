@@ -129,6 +129,10 @@ export function useWant(keys: string[]) {
   useEffect(() => (keys.length ? want(keys) : undefined), [sig]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
+export function getQuote(key: string): Quote | undefined {
+  return quotes.get(key);
+}
+
 export function useQuote(key: string | undefined): Quote | undefined {
   const subscribe = useCallback(
     (cb: () => void) => {

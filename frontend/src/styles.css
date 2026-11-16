@@ -2733,3 +2733,24 @@ progress {
     display: none !important;
   }
 }
+
+/* ───────────────────────────── Sensibull Strategy Builder ───────────────────────────── */
+.strategy-card {
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.strategy-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+@media (max-width: 1024px) {
+  .strategy-builder-layout {
+    grid-template-columns: 1fr !important;
+  }
+}
+@media (max-width: 640px) {
+  .strategy-metrics-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+

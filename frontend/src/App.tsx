@@ -17,6 +17,7 @@ import { Orders } from "./pages/Orders";
 import { Positions } from "./pages/Positions";
 import { Settings } from "./pages/Settings";
 import { Strategies } from "./pages/Strategies";
+import { StrategyBuilder } from "./pages/StrategyBuilder";
 import { Watchlist } from "./pages/Watchlist";
 
 const ROUTES: Record<string, () => JSX.Element> = {
@@ -26,6 +27,7 @@ const ROUTES: Record<string, () => JSX.Element> = {
   "/positions": Positions,
   "/chart": ChartPage,
   "/chain": Chain,
+  "/strategy-builder": StrategyBuilder,
   "/oi": OIAnalysis,
   "/algo": Algo,
   "/strategies": Strategies,

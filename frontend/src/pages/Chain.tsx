@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { ChainControls } from "../components/ChainControls";
 import { Empty } from "../components/ui";
-import { openTicket, useTitle } from "../lib/app";
+import { navigate, openTicket, useTitle } from "../lib/app";
 import { openChart } from "../lib/chart";
 import { chainSel, useChainSel, type ChainData, type ChainLeg, type ChainRow } from "../lib/chain";
 import { compact, dash, int, pct, px, signed, tone } from "../lib/format";
@@ -119,7 +119,26 @@ export function Chain() {
           <h1>Option chain</h1>
           <p>Live call and put prices with open interest. Hover a price to buy or sell.</p>
         </div>
-        <ChainControls data={data} extra={data ? <button className="btn sm" onClick={() => jump(true)} title="Scroll to the at-the-money strike">Jump to ATM</button> : null} />
+        <ChainControls
+          data={data}
+          extra={
+            data ? (
+              <div className="row gap-2">
+                <button className="btn sm" onClick={() => jump(true)} title="Scroll to the at-the-money strike">
+                  Jump to ATM
+                </button>
+                <button
+                  className="btn sm primary"
+                  style={{ fontWeight: 600 }}
+                  onClick={() => navigate("/strategy-builder")}
+                  title="Open Sensibull-style Strategy Builder & Payoff Analyzer"
+                >
+                  Strategy Builder
+                </button>
+              </div>
+            ) : null
+          }
+        />
       </div>
 
       {problem && (

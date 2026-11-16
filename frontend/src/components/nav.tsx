@@ -31,8 +31,15 @@ export const NAV: NavGroup[] = [
     items: [{ path: "/algo", label: "Algo", icon: <IconAlgo /> }, { path: "/strategies", label: "My strategies", icon: <IconBuilder /> }, { path: "/backtest", label: "Back-test", icon: <IconBacktest /> }],
   },
   {
-    id: "analyse", group: "Analyse", home: "/chain", icon: <IconChain />,
-    items: [{ path: "/chart", label: "Chart", icon: <IconChart /> }, { path: "/chain", label: "Option chain", icon: <IconChain /> }, { path: "/oi", label: "OI analysis", icon: <IconOI /> }, { path: "/market", label: "Market data", icon: <IconMarket /> }, { path: "/journal", label: "Trade journal", icon: <IconJournal /> }],
+    id: "analyse", group: "Analyse", home: "/strategy-builder", icon: <IconChain />,
+    items: [
+      { path: "/strategy-builder", label: "Strategy builder", icon: <IconBuilder /> },
+      { path: "/chart", label: "Chart", icon: <IconChart /> },
+      { path: "/chain", label: "Option chain", icon: <IconChain /> },
+      { path: "/oi", label: "OI analysis", icon: <IconOI /> },
+      { path: "/market", label: "Market data", icon: <IconMarket /> },
+      { path: "/journal", label: "Trade journal", icon: <IconJournal /> },
+    ],
   },
   { id: "account", group: "Account", home: "/settings", icon: <IconSettings />, items: [{ path: "/settings", label: "Settings", icon: <IconSettings /> }] },
 ];
