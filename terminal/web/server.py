@@ -557,7 +557,7 @@ def create_app(svc: Services, password: str) -> FastAPI:
             if body.client_id and body.client_id in recent_orders:          # a double-click / retry: same answer, no 2nd order
                 return recent_orders[body.client_id][1]
             with order_lock:
-                target = body.account_id.strip() if body.account_id else None
+                target = body.account_id.strip() if body.account_id and body.account_id.strip() != "default" else None
                 if target == "all":
                     results = []
                     aids = list(svc.accounts.keys()) or ["default"]

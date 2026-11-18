@@ -99,10 +99,20 @@ export function StrategyBuilder() {
   const [saveName, setSaveName] = useState("");
 
   // Trade All order execution
+  const connectedAccounts = sess?.accounts && sess.accounts.length > 0 ? sess.accounts : sess?.account ? [sess.account] : [];
   const [tradeAllOpen, setTradeAllOpen] = useState(false);
-  const [tradeAccount, setTradeAccount] = useState<string>("default");
+  const [tradeAccount, setTradeAccount] = useState<string>(() => {
+    return sess?.active_account_id || (connectedAccounts[0]?.id ?? "default");
+  });
   const [tradeProduct, setTradeProduct] = useState<"NRML" | "MIS">("NRML");
   const [tradingBusy, setTradingBusy] = useState(false);
+
+  useEffect(() => {
+    if (!tradeAccount || tradeAccount === "default") {
+      const def = sess?.active_account_id || (connectedAccounts[0]?.id ?? "");
+      if (def) setTradeAccount(def);
+    }
+  }, [sess?.active_account_id, connectedAccounts]);
 
   // Update target price default when spot first loads
   useEffect(() => {
@@ -372,32 +382,43 @@ export function StrategyBuilder() {
     setTradingBusy(true);
     let successCount = 0;
     let failCount = 0;
+    let lastError = "";
+
+    const resolvedAccount =
+      tradeAccount && tradeAccount !== "default"
+        ? tradeAccount
+        : sess?.active_account_id || (connectedAccounts[0]?.id ?? "");
 
     for (const leg of active) {
       try {
         const body = {
           key: leg.key,
           side: leg.side,
-          lots: leg.lots,
-          qty: leg.lots * leg.lotSize,
+          lots: leg.lots || 1,
+          qty: (leg.lots || 1) * (leg.lotSize || 1),
           product: tradeProduct,
           order_type: "L",
-          price: leg.price,
+          price: Number(leg.price) || 0,
           trigger: 0,
           validity: "DAY",
-          account_id: tradeAccount,
+          account_id: resolvedAccount,
           client_id: uuid(),
         };
 
-        const res = await api<{ ok: boolean }>("/orders", {
+        const res = await api<{ ok: boolean; order_id?: string; error?: string }>("/orders", {
           method: "POST",
-          body: JSON.stringify(body),
+          body,
         });
 
-        if (res.ok) successCount++;
-        else failCount++;
-      } catch {
+        if (res && res.ok !== false) {
+          successCount++;
+        } else {
+          failCount++;
+          if (res?.error) lastError = res.error;
+        }
+      } catch (err: any) {
         failCount++;
+        lastError = err?.message || "Order rejected";
       }
     }
 
@@ -407,11 +428,9 @@ export function StrategyBuilder() {
     if (failCount === 0) {
       toast(`Successfully placed ${successCount} orders!`, "info");
     } else {
-      toast(`Placed ${successCount} orders, ${failCount} failed. Check Orders page.`, "err");
+      toast(lastError ? `Order failed: ${lastError}` : `Placed ${successCount} orders, ${failCount} failed. Check Orders page.`, "err");
     }
   };
-
-  const connectedAccounts = sess?.accounts && sess.accounts.length > 0 ? sess.accounts : sess?.account ? [sess.account] : [];
 
   return (
     <div className="strategy-builder-page stack gap-3" style={{ padding: "16px 20px", maxWidth: 1600, margin: "0 auto" }}>
