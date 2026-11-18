@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { api } from "../lib/api";
 import { expiryLabel, daysTo, type ChainData } from "../lib/chain";
 import { calcIV, bsGreeks, type StrategyLeg } from "../lib/blackScholes";
@@ -81,6 +81,28 @@ export function StrategyStrikeModal({
     }
     return max;
   }, [rows]);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const jumpToAtm = (smooth = true) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const atmRow = el.querySelector<HTMLElement>(".atm-row");
+    if (!atmRow) return;
+    const delta =
+      atmRow.getBoundingClientRect().top -
+      el.getBoundingClientRect().top -
+      el.clientHeight / 2 +
+      atmRow.clientHeight / 2;
+    el.scrollTo({ top: el.scrollTop + delta, behavior: smooth ? "smooth" : "auto" });
+  };
+
+  useEffect(() => {
+    if (isOpen && activeTab === "strikes" && rows.length > 0 && atm > 0) {
+      const timer = window.setTimeout(() => jumpToAtm(false), 50);
+      return () => window.clearTimeout(timer);
+    }
+  }, [isOpen, activeTab, selectedExpiry, rows.length, atm]);
 
   if (!isOpen) return null;
 
@@ -243,11 +265,28 @@ export function StrategyStrikeModal({
                 </option>
               ))}
             </select>
+
+            {activeTab === "strikes" && (
+              <button
+                className="btn sm"
+                onClick={() => jumpToAtm(true)}
+                title="Jump to at-the-money strike"
+                style={{
+                  padding: "4px 10px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                }}
+              >
+                Jump to ATM
+              </button>
+            )}
           </div>
         </div>
 
         {/* Content Area */}
-        <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
+        <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "auto", position: "relative" }}>
           {/* TAB: STRIKES */}
           {activeTab === "strikes" && (
             <table className="table compact chain-table" style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
@@ -279,6 +318,7 @@ export function StrategyStrikeModal({
                   return (
                     <tr
                       key={r.strike}
+                      className={isAtm ? "atm-row" : ""}
                       style={{
                         background: isAtm ? "var(--accent-tint, rgba(230, 92, 0, 0.08))" : undefined,
                         borderBottom: "1px solid var(--line-soft, var(--line))",
@@ -373,6 +413,11 @@ export function StrategyStrikeModal({
                         }}
                       >
                         {r.strike}
+                        {isAtm && (
+                          <div style={{ fontSize: "8.5px", lineHeight: 1, fontWeight: 800, marginTop: 1, letterSpacing: 0.5, color: "#fff" }}>
+                            ATM
+                          </div>
+                        )}
                       </td>
 
                       {/* IV */}
