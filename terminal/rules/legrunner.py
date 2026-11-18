@@ -82,6 +82,7 @@ class LegRunner(Runner):
         self._next_watch = 0.0
         self.entry_dt: datetime | None = None
         self.complete_reason = ""            # set when a stopped leg must close everything
+        self.reexecute_done = 0              # count of full strategy re-executions completed
         self.be_request = False
         self.overall_reason = ""
         self.floor: float | None = None      # overall profit trailing: the locked-in profit
@@ -145,6 +146,8 @@ class LegRunner(Runner):
             self._select_phase()
         if self.selected and self.status in ("waiting", "watching"):
             self._process_actions()
+            if not self.selected:
+                return self._publish()
             if self.status in ("waiting", "watching"):
                 self._manage()
             if self.status in ("waiting", "watching"):
@@ -184,20 +187,21 @@ class LegRunner(Runner):
 
     def _select_phase(self) -> None:
         s, now = self.s, self.now_dt
-        self.entry_dt = self._at(s.entry_time)
+        if self.entry_dt is None or self.reexecute_done == 0:
+            self.entry_dt = self._at(s.entry_time)
         exit_dt = self._at(s.exit.time)
         if now >= exit_dt:
             self.status = "done"
             self.say("Exit time passed before the strikes were chosen. Nothing was traded.")
             return
         spot = self.m.ltp(self.spot_key)
-        if now < self.entry_dt:
+        if self.reexecute_done == 0 and now < self.entry_dt:
             self.message = f"Waiting for {s.entry_time} to choose the strikes."
             if spot and self.now_ts >= self._next_watch:                 # start recording nearby prices early so ranges are complete
                 self._next_watch = self.now_ts + 60
                 self._prewatch(spot)
             return
-        if now > self.entry_dt + timedelta(minutes=LATE_START_MIN):
+        if self.reexecute_done == 0 and now > self.entry_dt + timedelta(minutes=LATE_START_MIN):
             self.status = "done"
             self.message = f"Started after {s.entry_time}. Nothing was traded today."
             self.say(f"The strategy was started more than {LATE_START_MIN} minutes after its entry time ({s.entry_time}), "
@@ -288,8 +292,48 @@ class LegRunner(Runner):
     # ------------------------------------------------------------------------------------ actions
     def _process_actions(self) -> None:
         if self.complete_reason and not self.overall_reason:
-            self.overall_reason = self.complete_reason
-            self.say(f"{self.complete_reason}. Closing everything and ending the strategy for today.", "warn", notable=True)
+            if self.s.square_off == "reexecute":
+                for p in self._live():
+                    self._close(p, self.complete_reason)
+                    if self.status not in ("waiting", "watching"):
+                        return
+                can_re = (
+                    self.reexecute_done < self.s.reexecute_count
+                    and self.now_dt < self._at(self.s.last_entry_time)
+                    and self.now_dt < self._at(self.s.exit.time)
+                    and self._reentry_allowed()
+                    and not self.loss_stopped
+                    and not self.stop_requested
+                )
+                if can_re:
+                    self.reexecute_done += 1
+                    self.say(f"{self.complete_reason}. Re-executing strategy ({self.reexecute_done} of {self.s.reexecute_count}): re-selecting fresh strikes.", "warn", notable=True)
+                    self.complete_reason = ""
+                    self.overall_reason = ""
+                    self.selected = False
+                    self.entry_dt = self.now_dt
+                    self._next_select = 0.0
+                    for ls in self.lst:
+                        ls.pos = None
+                        ls.pending = None
+                        ls.key = ""
+                        ls.symbol = ""
+                        ls.label = ""
+                        ls.strike = None
+                        ls.status = "waiting"
+                        ls.armed = False
+                        ls.re_sl = 0
+                        ls.re_tgt = 0
+                        ls.progress = "re-selecting fresh strikes"
+                        ls.note = ""
+                    return
+                else:
+                    reason_sfx = f" (all {self.s.reexecute_count} re-executions completed)" if self.reexecute_done >= self.s.reexecute_count else " (time limit reached)"
+                    self.overall_reason = f"{self.complete_reason}{reason_sfx}"
+                    self.say(f"{self.overall_reason}. Ending strategy for today.", "warn", notable=True)
+            else:
+                self.overall_reason = self.complete_reason
+                self.say(f"{self.complete_reason}. Closing everything and ending the strategy for today.", "warn", notable=True)
         if self.overall_reason:
             for p in self._live():
                 self._close(p, self.overall_reason)
@@ -452,7 +496,7 @@ class LegRunner(Runner):
         kind = "sl" if reason.startswith("Stop-loss (") else "tgt" if reason.startswith("Target (") else ""
         if not kind:
             return
-        if self.s.square_off == "complete":
+        if self.s.square_off in ("complete", "reexecute"):
             self.complete_reason = f"{ls.title()} hit its {'stop-loss' if kind == 'sl' else 'target'}: complete square-off"
             return
         rcfg = ls.cfg.reentry_sl if kind == "sl" else ls.cfg.reentry_tgt
@@ -663,6 +707,8 @@ class LegRunner(Runner):
 
     # ------------------------------------------------------------------------------------ finishing
     def _maybe_finish(self) -> None:
+        if not self.selected:
+            return
         if any(p.status in ("open", "attention") for p in self.positions):
             return
         exit_dt = self._at(self.s.exit.time)
@@ -711,5 +757,6 @@ class LegRunner(Runner):
             "positions": [p.to_dict(self.m.ltp(p.key)) for p in self.positions], "pnl": self.pnl(),
             "overall": {"floor": self.floor, "reason": self.overall_reason, "monitoring": self.monitoring if self.now_dt else True},
             "entries_done": self.entries_done, "max_entries": len(self.lst),
+            "reexecute_done": self.reexecute_done, "reexecute_count": getattr(self.s, "reexecute_count", 1), "square_off": self.s.square_off,
             "log": list(self._logs)[-80:],
         }

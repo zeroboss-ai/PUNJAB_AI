@@ -114,6 +114,9 @@ export interface RunState {
   pnl?: { realised: number; unrealised: number; total: number };
   entries_done?: number;
   max_entries?: number;
+  reexecute_done?: number;
+  reexecute_count?: number;
+  square_off?: string;
   log: { t: string; level: "info" | "warn" | "error"; msg: string }[];
 }
 export interface StrategyRow {

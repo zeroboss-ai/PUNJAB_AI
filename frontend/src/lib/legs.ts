@@ -40,7 +40,8 @@ export interface LegSpec {
   entry_time: string;
   last_entry_time: string;
   exit_time?: string;
-  square_off: "partial" | "complete";
+  square_off: "partial" | "complete" | "reexecute";
+  reexecute_count?: number;
   trail_be: boolean;
   trail_be_scope: "all" | "sl_legs";
   no_reentry_after: string;

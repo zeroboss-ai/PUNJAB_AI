@@ -58,6 +58,9 @@ export function Live({ st }: { st: RunState }) {
         {st.spot && <><dt>Index</dt><dd>{px(st.spot.ltp)}</dd></>}
         {st.pnl && <><dt>P&amp;L today</dt><dd className={pnlClass(st.pnl.total)} style={{ fontWeight: 600 }}>{signedRupees(st.pnl.total)} <small className="muted">(booked {signedRupees(st.pnl.realised)}, open {signedRupees(st.pnl.unrealised)})</small></dd></>}
         {st.entries_done != null && <><dt>{legsLive ? "Legs entered" : "Entries"}</dt><dd>{st.entries_done}{st.max_entries ? ` of ${st.max_entries}` : " (no limit set)"}</dd></>}
+        {st.square_off === "reexecute" && (
+          <><dt>Strategy re-execution</dt><dd><b>{st.reexecute_done ?? 0}</b> of <b>{st.reexecute_count ?? 1}</b> full re-entries completed</dd></>
+        )}
       </dl>
       {legsLive && <div className="legs-live">{legsLive.map((l) => <LegLine key={l.id} l={l} />)}</div>}
       {st.rules?.map((r) => (

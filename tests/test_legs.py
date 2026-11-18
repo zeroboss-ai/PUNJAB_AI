@@ -340,6 +340,27 @@ def test_complete_square_off_closes_everything_when_one_leg_stops_out(w):
     assert pe.exit_price == pytest.approx(85, abs=1.0)
 
 
+def test_reexecute_square_off_closes_everything_and_reenters_whole_strategy(w):
+    sp = spec(leg("S", "CE", sl=sl(25)), leg("S", "PE", sl=sl(25)), square_off="reexecute", reexecute_count=1)
+    r = start_before_entry(w, sp, CE24250=100, PE24250=90)
+    w.at("09:35:02")
+    assert len(r.positions) == 2 and r.positions[0].status == "open" and r.positions[1].status == "open"
+    # Call hits stop loss at 10:00
+    w.at("10:00", CE24250=126, PE24250=85)
+    w.at("10:00:05", CE24250=127, PE24250=85)
+    assert r.reexecute_done == 1
+    # Next ticks re-select strikes and re-enter
+    w.at("10:00:10", CE24250=127, PE24250=85)
+    w.at("10:00:12", CE24250=127, PE24250=85)
+    assert len(r.positions) == 4
+    p3, p4 = r.positions[2], r.positions[3]
+    assert p3.status == "open" and p4.status == "open"
+    # Second cycle: hits SL again, count is used up -> ends
+    w.at("10:30", CE24250=160, PE24250=80)
+    w.at("10:30:05", CE24250=161, PE24250=80)
+    assert r.status == "done"
+
+
 def test_late_start_does_not_trade(w):
     w.chain_prices(24250)
     w.at("09:50", 24250, step=False, CE24250=100, PE24250=90)

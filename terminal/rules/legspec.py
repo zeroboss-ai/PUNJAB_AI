@@ -131,7 +131,8 @@ class LegStrategy:
     product: str = "MIS"
     entry_time: str = "09:35"
     last_entry_time: str = "15:00"
-    square_off: str = "partial"     # partial: only the leg that hit its stop closes | complete: everything closes
+    square_off: str = "partial"     # partial: only the leg that hit its stop closes | complete: everything closes | reexecute: close all and re-enter all afresh
+    reexecute_count: int = 1        # times the whole strategy can re-execute after complete square-off
     trail_be: bool = False          # after a leg stops out, move the stop of the others to their entry price
     trail_be_scope: str = "all"     # all | sl_legs (only legs that have a stop-loss)
     no_reentry_after: str = ""
@@ -242,7 +243,8 @@ def parse(raw: Any) -> tuple[LegStrategy | None, list[str], list[str]]:
     else:
         dflt_last = "15:00" if s.exit.time >= "15:05" else s.exit.time
     s.last_entry_time = p.hm(raw, "last_entry_time", "Last entry time", dflt_last)
-    s.square_off = p.choice(raw, "square_off", "Square off", ("partial", "complete"), "partial")
+    s.square_off = p.choice(raw, "square_off", "Square off", ("partial", "complete", "reexecute"), "partial")
+    s.reexecute_count = int(p.num(raw, "reexecute_count", "Re-execute count", 1, 10, 1, integer=True))
     tb = raw.get("trail_be")
     if isinstance(tb, dict):
         s.trail_be, scope_src = bool(tb.get("on", False)), tb
@@ -403,9 +405,11 @@ def _cross_checks(s: LegStrategy, p: _P, warnings: list[str]) -> None:
     if buys and sells:
         warnings.append("Bought legs are placed before sold legs so the hedge is in place first.")
     if s.square_off == "complete" and any(lg.reentry_sl.mode != "none" or lg.reentry_tgt.mode != "none" for lg in s.legs):
-        warnings.append("With 'complete' square-off, a stopped leg closes everything and ends the strategy for the day, so re-entries will not happen.")
-    if s.trail_be and s.square_off == "complete":
-        warnings.append("Trail to break-even does nothing with 'complete' square-off, because the other legs are already closed.")
+        warnings.append("With 'complete' square-off, a stopped leg closes everything and ends the strategy for the day, so per-leg re-entries will not happen.")
+    if s.square_off == "reexecute":
+        warnings.append(f"With 'complete & re-execute', when a leg stops out, everything closes and the whole strategy re-enters with fresh strikes (up to {s.reexecute_count} time(s)).")
+    if s.trail_be and s.square_off in ("complete", "reexecute"):
+        warnings.append("Trail to break-even does nothing with complete square-off, because all legs are closed together.")
 
 
 # ---------------------------------------------------------------------------------------- plain English
@@ -499,8 +503,12 @@ def describe(s: LegStrategy) -> list[str]:
         t = o.trail
         extra = f", then for every ₹{t.every:,.0f} more profit raise it by ₹{t.by:,.0f}" if t.every > 0 else ""
         out.append(f"Overall profit trailing: once profit reaches ₹{t.reach:,.0f}, lock in ₹{t.lock:,.0f}{extra}. If profit falls back to the locked amount, everything closes.")
-    out.append("When one leg hits its stop-loss or target: " + ("everything else closes and the strategy ends for the day."
-                                                              if s.square_off == "complete" else "only that leg closes; the others carry on."))
+    if s.square_off == "reexecute":
+        out.append(f"When one leg hits its stop-loss or target: everything else closes and the whole strategy re-enters with fresh strikes (up to {s.reexecute_count} time(s)).")
+    elif s.square_off == "complete":
+        out.append("When one leg hits its stop-loss or target: everything else closes and the strategy ends for the day.")
+    else:
+        out.append("When one leg hits its stop-loss or target: only that leg closes; the others carry on.")
     if s.trail_be:
         out.append(f"After a leg stops out, the stop-loss of the {'other legs' if s.trail_be_scope == 'all' else 'other legs that have one'} moves to their entry price.")
     if s.no_reentry_after:

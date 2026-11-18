@@ -356,11 +356,19 @@ export function LegBuilder() {
               {timeField("llast", "Last entry time", spec.last_entry_time, (last_entry_time) => up({ last_entry_time }))}
               {timeField("lnore", "No re-entry after", spec.no_reentry_after, (no_reentry_after) => up({ no_reentry_after }), true)}
               {timeField("lmon", "Stop monitoring after", spec.stop_monitoring_after, (stop_monitoring_after) => up({ stop_monitoring_after }), true)}
-              <div className="field"><span className="lbl">When a leg hits its stop-loss or target</span>
+              <div className="field span2"><span className="lbl">When a leg hits its stop-loss or target</span>
                 <div className="seg" role="group" aria-label="Square off">
                   <button aria-pressed={spec.square_off === "partial"} onClick={() => up({ square_off: "partial" })}>Square off partial</button>
                   <button aria-pressed={spec.square_off === "complete"} onClick={() => up({ square_off: "complete" })}>Square off complete</button>
+                  <button aria-pressed={spec.square_off === "reexecute"} onClick={() => up({ square_off: "reexecute", reexecute_count: spec.reexecute_count ?? 2 })}>Complete &amp; Re-execute</button>
                 </div>
+                {spec.square_off === "reexecute" && (
+                  <div className="row" style={{ marginTop: 8, gap: 8, alignItems: "center" }}>
+                    <span className="mini">Re-execute entire strategy up to</span>
+                    <Num label="Re-execute count" value={spec.reexecute_count ?? 2} min={1} max={10} onChange={(cnt) => up({ reexecute_count: cnt })} />
+                    <span className="mini">time(s) after complete square-off (picks fresh strikes &amp; re-enters)</span>
+                  </div>
+                )}
               </div>
               <div className="field span2">
                 <label className="check"><input type="checkbox" checked={spec.trail_be} onChange={(e) => up({ trail_be: e.target.checked })} /><span><b>Trail stop-loss to break-even</b> after a leg stops out: the other legs' stop-loss moves to their entry price.</span></label>
