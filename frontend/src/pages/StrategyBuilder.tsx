@@ -101,6 +101,7 @@ export function StrategyBuilder() {
   // Trade All order execution
   const connectedAccounts = sess?.accounts && sess.accounts.length > 0 ? sess.accounts : sess?.account ? [sess.account] : [];
   const [tradeAllOpen, setTradeAllOpen] = useState(false);
+  const [tradeOrderType, setTradeOrderType] = useState<"MKT" | "L">("MKT");
   const [tradeAccount, setTradeAccount] = useState<string>(() => {
     return sess?.active_account_id || (connectedAccounts[0]?.id ?? "default");
   });
@@ -397,8 +398,8 @@ export function StrategyBuilder() {
           lots: leg.lots || 1,
           qty: (leg.lots || 1) * (leg.lotSize || 1),
           product: tradeProduct,
-          order_type: "L",
-          price: Number(leg.price) || 0,
+          order_type: tradeOrderType,
+          price: tradeOrderType === "MKT" ? 0 : (Number(leg.price) || 0),
           trigger: 0,
           validity: "DAY",
           account_id: resolvedAccount,
@@ -507,6 +508,52 @@ export function StrategyBuilder() {
               </div>
             </div>
 
+            {/* Order Type Selector (Market default / Limit option) */}
+            <div
+              className="row justify-between align-center"
+              style={{
+                background: "var(--panel-alt, rgba(0,0,0,0.03))",
+                padding: "6px 10px",
+                borderRadius: "6px",
+                border: "1px solid var(--line)",
+              }}
+            >
+              <div className="stack" style={{ gap: 1 }}>
+                <span style={{ fontSize: "12px", fontWeight: 700 }}>Order Type</span>
+                <span className="mini muted" style={{ fontSize: "10px" }}>
+                  {tradeOrderType === "MKT" ? "Market price execution" : "Specified limit price"}
+                </span>
+              </div>
+              <div className="seg" role="group">
+                <button
+                  type="button"
+                  aria-pressed={tradeOrderType === "MKT"}
+                  onClick={() => setTradeOrderType("MKT")}
+                  style={{
+                    padding: "3px 10px",
+                    fontSize: "11px",
+                    fontWeight: tradeOrderType === "MKT" ? 700 : 500,
+                  }}
+                  title="Market Order (Default) - Orders execute immediately at market rate"
+                >
+                  Market (MKT)
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={tradeOrderType === "L"}
+                  onClick={() => setTradeOrderType("L")}
+                  style={{
+                    padding: "3px 10px",
+                    fontSize: "11px",
+                    fontWeight: tradeOrderType === "L" ? 700 : 500,
+                  }}
+                  title="Limit Order - Orders placed with your specified limit prices"
+                >
+                  Limit (L)
+                </button>
+              </div>
+            </div>
+
             {/* List of Legs */}
             <div className="stack gap-2" style={{ maxHeight: "480px", overflowY: "auto" }}>
               {legs.map((leg) => {
@@ -581,21 +628,45 @@ export function StrategyBuilder() {
                       </div>
                     </div>
 
-                    {/* Price Input */}
-                    <div style={{ width: 75, textAlign: "right" }}>
-                      <input
-                        className="input sm num"
-                        style={{ width: "100%", padding: "2px 6px", fontSize: "12px", textAlign: "right" }}
-                        type="number"
-                        step="any"
-                        value={leg.price}
-                        onChange={(e) => handleUpdateLeg(leg.id, { price: Number(e.target.value) || 0 })}
-                        title="Entry price"
-                      />
-                      {liveLtp && liveLtp !== leg.price && (
-                        <div className="mini muted" style={{ fontSize: "10px" }}>
-                          LTP: {px(liveLtp)}
+                    {/* Price Input or MKT Badge */}
+                    <div style={{ width: 80, textAlign: "right" }}>
+                      {tradeOrderType === "MKT" ? (
+                        <div className="stack align-end" style={{ gap: 2 }}>
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              padding: "1px 6px",
+                              fontWeight: 700,
+                              background: "rgba(37,99,235,0.12)",
+                              color: "#2563eb",
+                              border: "1px solid rgba(37,99,235,0.3)",
+                              borderRadius: "4px",
+                              display: "inline-block",
+                            }}
+                          >
+                            MKT
+                          </span>
+                          <span className="mini muted" style={{ fontSize: "10px", fontWeight: 600 }}>
+                            {liveLtp ? `₹${px(liveLtp)}` : `₹${px(leg.price)}`}
+                          </span>
                         </div>
+                      ) : (
+                        <>
+                          <input
+                            className="input sm num"
+                            style={{ width: "100%", padding: "2px 6px", fontSize: "12px", textAlign: "right" }}
+                            type="number"
+                            step="any"
+                            value={leg.price}
+                            onChange={(e) => handleUpdateLeg(leg.id, { price: Number(e.target.value) || 0 })}
+                            title="Limit price"
+                          />
+                          {liveLtp && liveLtp !== leg.price && (
+                            <div className="mini muted" style={{ fontSize: "10px" }}>
+                              LTP: {px(liveLtp)}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
 
@@ -643,7 +714,7 @@ export function StrategyBuilder() {
                 }}
                 onClick={() => setTradeAllOpen(true)}
               >
-                Trade All ({legs.filter((l) => l.enabled).length} Orders)
+                Trade All ({legs.filter((l) => l.enabled).length} {tradeOrderType === "MKT" ? "Market" : "Limit"} Orders)
               </button>
             </div>
           </div>
@@ -1225,7 +1296,15 @@ export function StrategyBuilder() {
         >
           <div className="stack gap-3">
             <div className="notice">
-              This will place <b>{legs.filter((l) => l.enabled).length} limit orders</b> at your strategy prices into your connected Kotak account.
+              {tradeOrderType === "MKT" ? (
+                <span>
+                  This will place <b>{legs.filter((l) => l.enabled).length} Market (MKT) orders</b> for instant execution at current market rates into your connected account.
+                </span>
+              ) : (
+                <span>
+                  This will place <b>{legs.filter((l) => l.enabled).length} Limit (L) orders</b> at your strategy prices into your connected account.
+                </span>
+              )}
             </div>
 
             {/* Account Selector */}
@@ -1247,6 +1326,27 @@ export function StrategyBuilder() {
               </div>
             )}
 
+            {/* Order Type (Market vs Limit) */}
+            <div className="field">
+              <label>Order Type</label>
+              <div className="seg full">
+                <button
+                  type="button"
+                  aria-pressed={tradeOrderType === "MKT"}
+                  onClick={() => setTradeOrderType("MKT")}
+                >
+                  Market (MKT) - Default
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={tradeOrderType === "L"}
+                  onClick={() => setTradeOrderType("L")}
+                >
+                  Limit (L) - Strategy Prices
+                </button>
+              </div>
+            </div>
+
             {/* Product Type */}
             <div className="field">
               <label>Product</label>
@@ -1267,7 +1367,7 @@ export function StrategyBuilder() {
                   <span>
                     <b className={l.side === "B" ? "up" : "down"}>{l.side === "B" ? "BUY" : "SELL"}</b> {l.lots} lot ({l.lots * l.lotSize} qty) · {l.kind === "FUT" ? `${underlying} FUT` : `${l.strike} ${l.kind}`}
                   </span>
-                  <b>₹{px(l.price)}</b>
+                  <b>{tradeOrderType === "MKT" ? "MKT" : `₹${px(l.price)}`}</b>
                 </div>
               ))}
             </div>
