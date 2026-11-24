@@ -3,6 +3,7 @@ Angel One SmartAPI broker adapter.
 
 Handles authentication (SmartConnect session with TOTP) and live trading gateway
 (place, modify, cancel orders, order book, trade book, open positions, funds).
+Includes built-in native REST implementation so it works with or without external smartapi-python package.
 """
 from __future__ import annotations
 
@@ -10,7 +11,10 @@ import logging
 import math
 import os
 import re
+import uuid
 from typing import Any
+
+import requests
 
 from ..models import OrderError
 from ..trading.models import Funds, OrderRow, OrderTicket, PositionRow, TradeRow
@@ -44,6 +48,122 @@ def map_angel_order_status(raw: str) -> str:
     return "UNKNOWN"
 
 
+class NativeSmartConnect:
+    """Built-in pure REST client for Angel One SmartAPI."""
+    _rootUrl = "https://apiconnect.angelone.in"
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = api_key or ""
+        self.access_token: str | None = None
+        self.refresh_token: str | None = None
+        self.feed_token: str | None = None
+        self.userId: str | None = None
+        self.root = self._rootUrl
+        self.clientPublicIp = "106.193.147.98"
+        try:
+            r = requests.get("https://api.ipify.org", timeout=2)
+            if r.status_code == 200 and r.text.strip():
+                self.clientPublicIp = r.text.strip()
+        except Exception:
+            pass
+        try:
+            self.clientMacAddress = ':'.join(re.findall('..', '%012x' % uuid.getnode()))
+        except Exception:
+            self.clientMacAddress = "fe80::1"
+
+    def requestHeaders(self) -> dict[str, str]:
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+            "X-ClientLocalIP": "127.0.0.1",
+            "X-ClientPublicIP": self.clientPublicIp,
+            "X-MACAddress": self.clientMacAddress,
+            "X-PrivateKey": self.api_key,
+        }
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        return headers
+
+    def generateSession(self, clientCode: str, password: str, totp: str) -> dict:
+        url = f"{self.root}/rest/auth/angelbroking/user/v1/loginByPassword"
+        payload = {"clientcode": clientCode, "password": password, "totp": str(totp).strip()}
+        try:
+            res = requests.post(url, json=payload, headers=self.requestHeaders(), timeout=12)
+            data = res.json()
+        except Exception as e:
+            return {"status": False, "message": f"Connection error: {e}"}
+
+        if isinstance(data, dict) and data.get("status") is True and data.get("data"):
+            ud = data["data"]
+            self.access_token = ud.get("jwtToken")
+            self.feed_token = ud.get("feedToken")
+            self.refresh_token = ud.get("refreshToken")
+            self.userId = clientCode
+        return data
+
+    def terminateSession(self, clientCode: str) -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/user/v1/logout"
+        try:
+            res = requests.post(url, json={"clientcode": clientCode}, headers=self.requestHeaders(), timeout=8)
+            return res.json()
+        except Exception:
+            return {"status": True}
+
+    def placeOrder(self, orderparams: dict) -> str | None:
+        resp = self.placeOrderFullResponse(orderparams)
+        if isinstance(resp, dict) and resp.get("status") is True:
+            data = resp.get("data")
+            if isinstance(data, dict) and data.get("orderid"):
+                return str(data["orderid"])
+        return None
+
+    def placeOrderFullResponse(self, orderparams: dict) -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/order/v1/placeOrder"
+        res = requests.post(url, json=orderparams, headers=self.requestHeaders(), timeout=12)
+        return res.json()
+
+    def modifyOrder(self, orderparams: dict) -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/order/v1/modifyOrder"
+        res = requests.post(url, json=orderparams, headers=self.requestHeaders(), timeout=12)
+        return res.json()
+
+    def cancelOrder(self, order_id: str, variety: str = "NORMAL") -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/order/v1/cancelOrder"
+        res = requests.post(url, json={"orderid": str(order_id), "variety": variety}, headers=self.requestHeaders(), timeout=12)
+        return res.json()
+
+    def orderBook(self) -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/order/v1/getOrderBook"
+        res = requests.get(url, headers=self.requestHeaders(), timeout=12)
+        return res.json()
+
+    def tradeBook(self) -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/order/v1/getTradeBook"
+        res = requests.get(url, headers=self.requestHeaders(), timeout=12)
+        return res.json()
+
+    def position(self) -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/order/v1/getPosition"
+        res = requests.get(url, headers=self.requestHeaders(), timeout=12)
+        return res.json()
+
+    def rmsLimit(self) -> dict:
+        url = f"{self.root}/rest/secure/angelbroking/user/v1/getRMS"
+        res = requests.get(url, headers=self.requestHeaders(), timeout=12)
+        return res.json()
+
+
+def _get_smart_client(api_key: str):
+    """Return SmartConnect from smartapi-python or fallback to built-in NativeSmartConnect."""
+    try:
+        from SmartApi import SmartConnect
+        return SmartConnect(api_key=api_key)
+    except Exception:
+        return NativeSmartConnect(api_key=api_key)
+
+
 class AngelOneSession:
     def __init__(self, creds: dict[str, str] | os._Environ = os.environ) -> None:
         self.creds = creds
@@ -61,11 +181,6 @@ class AngelOneSession:
         return v
 
     def login(self, totp: str | None = None) -> None:
-        try:
-            from SmartApi import SmartConnect
-        except ImportError:
-            raise RuntimeError("smartapi-python library is required for Angel One. Run: pip install smartapi-python")
-
         api_key = self._need("ANGEL_API_KEY")
         client_code = self._need("ANGEL_CLIENT_CODE").upper()
         pin = self._need("ANGEL_PIN")
@@ -77,7 +192,7 @@ class AngelOneSession:
             import pyotp
             totp = pyotp.TOTP(secret).now()
 
-        client = SmartConnect(api_key=api_key)
+        client = _get_smart_client(api_key=api_key)
         data = client.generateSession(client_code, pin, str(totp).strip())
 
         if not isinstance(data, dict):
