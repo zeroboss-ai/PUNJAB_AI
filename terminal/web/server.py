@@ -53,11 +53,18 @@ class ConnectIn(BaseModel):
 
 
 class AccountIn(BaseModel):
+    broker: Literal["kotak", "angelone"] = "kotak"
     label: str = Field("", max_length=40)
+    # Kotak fields
     consumer_key: str = Field("", max_length=300)
     mobile: str = Field("", max_length=24)
     ucc: str = Field("", max_length=30)
     mpin: str = Field("", max_length=12)
+    # Angel One fields
+    api_key: str = Field("", max_length=300)
+    client_code: str = Field("", max_length=30)
+    pin: str = Field("", max_length=12)
+    # Common fields
     totp_secret: str = Field("", max_length=80)
     clear_totp_secret: bool = False
     static_ip: str = Field("", max_length=64)

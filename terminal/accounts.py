@@ -71,6 +71,11 @@ def clean_fields(f: dict[str, Any], *, partial: bool, current: dict[str, Any] | 
     """Validate and normalise. With partial=True, empty secret fields mean 'keep what is saved'."""
     cur = current or {}
     out: dict[str, Any] = {}
+    broker = str(f.get("broker") or cur.get("broker") or "kotak").strip().lower()
+    if broker not in ("kotak", "angelone"):
+        broker = "kotak"
+    out["broker"] = broker
+
     label = str(f.get("label", "")).strip()
     if label or not partial:
         if not 1 <= len(label) <= 40:
@@ -89,19 +94,53 @@ def clean_fields(f: dict[str, Any], *, partial: bool, current: dict[str, Any] | 
             raise VaultError(f"{text} is required.")
         return v
 
-    ck = need("consumer_key", "The API token (consumer key)")
-    if not 8 <= len(ck) <= 300 or re.search(r"\s", ck):
-        raise VaultError("The API token looks wrong: it should be one long piece of text without spaces. Copy it again from the Kotak Neo API dashboard.")
-    out["consumer_key"] = ck
-    out["mobile"] = clean_mobile(need("mobile", "The mobile number"))
-    ucc = need("ucc", "The client ID (UCC)").upper()
-    if not re.fullmatch(r"[A-Z0-9]{2,20}", ucc):
-        raise VaultError("The client ID (UCC) should be letters and digits only, like AB123.")
-    out["ucc"] = ucc
-    mpin = need("mpin", "The MPIN")
-    if not re.fullmatch(r"\d{4,8}", mpin):
-        raise VaultError("The MPIN should be 4 to 8 digits (Kotak MPINs are 6 digits).")
-    out["mpin"] = mpin
+    if broker == "angelone":
+        ak = str(f.get("api_key") or f.get("consumer_key") or "").strip()
+        if not ak and partial and (cur.get("api_key") or cur.get("consumer_key")):
+            ak = cur.get("api_key") or cur.get("consumer_key")
+        if not ak:
+            raise VaultError("The Angel One API Key is required.")
+        if not 8 <= len(ak) <= 300 or re.search(r"\s", ak):
+            raise VaultError("The API Key looks wrong: it should be one long piece of text without spaces. Copy it from your Angel One SmartAPI developer portal.")
+        out["api_key"] = ak
+        out["consumer_key"] = ak
+
+        cc = str(f.get("client_code") or f.get("ucc") or "").strip().upper()
+        if not cc and partial and (cur.get("client_code") or cur.get("ucc")):
+            cc = (cur.get("client_code") or cur.get("ucc")).upper()
+        if not cc:
+            raise VaultError("The Angel One Client Code is required.")
+        if not re.fullmatch(r"[A-Z0-9]{2,20}", cc):
+            raise VaultError("The Client Code should be letters and digits only, like A123456.")
+        out["client_code"] = cc
+        out["ucc"] = cc
+
+        p = str(f.get("pin") or f.get("mpin") or "").strip()
+        if not p and partial and (cur.get("pin") or cur.get("mpin")):
+            p = cur.get("pin") or cur.get("mpin")
+        if not p:
+            raise VaultError("The Angel One trading PIN is required.")
+        if not re.fullmatch(r"\d{4,8}", p):
+            raise VaultError("The PIN should be 4 to 8 digits (usually 4 digits for Angel One).")
+        out["pin"] = p
+        out["mpin"] = p
+
+        mob = str(f.get("mobile") or cur.get("mobile") or "").strip()
+        out["mobile"] = mob
+    else:
+        ck = need("consumer_key", "The API token (consumer key)")
+        if not 8 <= len(ck) <= 300 or re.search(r"\s", ck):
+            raise VaultError("The API token looks wrong: it should be one long piece of text without spaces. Copy it again from the Kotak Neo API dashboard.")
+        out["consumer_key"] = ck
+        out["mobile"] = clean_mobile(need("mobile", "The mobile number"))
+        ucc = need("ucc", "The client ID (UCC)").upper()
+        if not re.fullmatch(r"[A-Z0-9]{2,20}", ucc):
+            raise VaultError("The client ID (UCC) should be letters and digits only, like AB123.")
+        out["ucc"] = ucc
+        mpin = need("mpin", "The MPIN")
+        if not re.fullmatch(r"\d{4,8}", mpin):
+            raise VaultError("The MPIN should be 4 to 8 digits (Kotak MPINs are 6 digits).")
+        out["mpin"] = mpin
 
     ts = re.sub(r"\s", "", str(f.get("totp_secret", ""))).upper()
     if f.get("clear_totp_secret"):
@@ -197,7 +236,7 @@ class AccountVault:
         out = []
         vals1 = {k: str(e.get(n, "") or "").strip() for k, n in _ENV_NAMES.items()}
         if all(vals1[k] for k in ("consumer_key", "mobile", "ucc", "mpin")):
-            out.append({"id": ENV_ID, "label": ".env file", **vals1, "ucc": vals1["ucc"].upper(), "static_ip": "", "source": "env"})
+            out.append({"id": ENV_ID, "broker": "kotak", "label": ".env file", **vals1, "ucc": vals1["ucc"].upper(), "static_ip": "", "source": "env"})
 
         for idx in range(2, 10):
             for pfx in (f"NEO_{idx}_", f"NEO_ACCOUNT_{idx}_", f"ACCOUNT_{idx}_"):
@@ -210,6 +249,7 @@ class AccountVault:
                 if ck and mob and ucc and mpin:
                     out.append({
                         "id": f"env_{idx}",
+                        "broker": "kotak",
                         "label": lbl,
                         "consumer_key": ck,
                         "mobile": mob,
@@ -220,6 +260,54 @@ class AccountVault:
                         "source": "env"
                     })
                     break
+
+        # Angel One accounts in environment
+        angel_key = str(e.get("ANGEL_API_KEY", "") or "").strip()
+        angel_code = str(e.get("ANGEL_CLIENT_CODE", "") or e.get("ANGEL_USER_ID", "") or "").strip().upper()
+        angel_pin = str(e.get("ANGEL_PIN", "") or "").strip()
+        angel_totp = str(e.get("ANGEL_TOTP_SECRET", "") or "").strip()
+        angel_lbl = str(e.get("ANGEL_LABEL", "") or "Angel One (.env)").strip()
+        if angel_key and angel_code and angel_pin:
+            out.append({
+                "id": "env_angel",
+                "broker": "angelone",
+                "label": angel_lbl,
+                "api_key": angel_key,
+                "consumer_key": angel_key,
+                "client_code": angel_code,
+                "ucc": angel_code,
+                "pin": angel_pin,
+                "mpin": angel_pin,
+                "mobile": "",
+                "totp_secret": angel_totp,
+                "static_ip": "",
+                "source": "env"
+            })
+
+        for idx in range(2, 10):
+            pfx = f"ANGEL_{idx}_"
+            ak = str(e.get(f"{pfx}API_KEY", "") or "").strip()
+            cc = str(e.get(f"{pfx}CLIENT_CODE", "") or e.get(f"{pfx}USER_ID", "") or "").strip().upper()
+            pin = str(e.get(f"{pfx}PIN", "") or "").strip()
+            totp = str(e.get(f"{pfx}TOTP_SECRET", "") or "").strip()
+            lbl = str(e.get(f"{pfx}LABEL", "") or f"Angel One {idx} (.env)").strip()
+            if ak and cc and pin:
+                out.append({
+                    "id": f"env_angel_{idx}",
+                    "broker": "angelone",
+                    "label": lbl,
+                    "api_key": ak,
+                    "consumer_key": ak,
+                    "client_code": cc,
+                    "ucc": cc,
+                    "pin": pin,
+                    "mpin": pin,
+                    "mobile": "",
+                    "totp_secret": totp,
+                    "static_ip": "",
+                    "source": "env"
+                })
+
         return out
 
     def _env_account(self) -> dict[str, Any] | None:
@@ -247,10 +335,24 @@ class AccountVault:
         c_set = set(connected_ids) if connected_ids is not None else ({connected_id} if connected_id else set())
         out = []
         for a in self._all():
-            out.append({"id": a["id"], "label": a["label"], "source": a["source"], "ucc": mask_ucc(a["ucc"]), "mobile": mask_mobile(a["mobile"]),
-                        "token": _tail(a["consumer_key"], 4), "has_mpin": bool(a["mpin"]), "has_totp_secret": bool(a.get("totp_secret")),
-                        "static_ip": a.get("static_ip", ""), "default": a["id"] == d, "connected": a["id"] in c_set,
-                        "editable": a["source"] == "saved"})
+            broker = a.get("broker", "kotak")
+            token_val = a.get("api_key") or a.get("consumer_key", "")
+            ucc_val = a.get("client_code") or a.get("ucc", "")
+            out.append({
+                "id": a["id"],
+                "broker": broker,
+                "label": a["label"],
+                "source": a["source"],
+                "ucc": mask_ucc(ucc_val),
+                "mobile": mask_mobile(a.get("mobile", "")) if broker == "kotak" and a.get("mobile") else "",
+                "token": _tail(token_val, 4),
+                "has_mpin": bool(a.get("pin") or a.get("mpin")),
+                "has_totp_secret": bool(a.get("totp_secret")),
+                "static_ip": a.get("static_ip", ""),
+                "default": a["id"] == d,
+                "connected": a["id"] in c_set,
+                "editable": a["source"] == "saved"
+            })
         return out
 
     def get(self, account_id: str) -> dict[str, Any]:
@@ -260,16 +362,31 @@ class AccountVault:
         raise VaultError("That account does not exist (it may have been deleted).")
 
     def creds(self, account_id: str) -> dict[str, str]:
-        """The values the Kotak login reads (same names as the .env file)."""
+        """The values the broker login reads."""
         a = self.get(account_id)
-        return {"NEO_CONSUMER_KEY": a["consumer_key"], "NEO_MOBILE_NUMBER": a["mobile"], "NEO_UCC": a["ucc"], "NEO_MPIN": a["mpin"],
-                "NEO_TOTP_SECRET": a.get("totp_secret", "")}
+        broker = a.get("broker", "kotak")
+        if broker == "angelone":
+            return {
+                "broker": "angelone",
+                "ANGEL_API_KEY": a.get("api_key") or a.get("consumer_key", ""),
+                "ANGEL_CLIENT_CODE": a.get("client_code") or a.get("ucc", ""),
+                "ANGEL_PIN": a.get("pin") or a.get("mpin", ""),
+                "ANGEL_TOTP_SECRET": a.get("totp_secret", "")
+            }
+        return {
+            "broker": "kotak",
+            "NEO_CONSUMER_KEY": a["consumer_key"],
+            "NEO_MOBILE_NUMBER": a["mobile"],
+            "NEO_UCC": a["ucc"],
+            "NEO_MPIN": a["mpin"],
+            "NEO_TOTP_SECRET": a.get("totp_secret", "")
+        }
 
     def journal_namespace(self, account_id: str, mode: str) -> str:
-        """The journal is kept per real Kotak client ID, so the same account always shows the same history however its keys are stored."""
+        """The journal is kept per real client ID, so the same account always shows the same history however its keys are stored."""
         env = self._env_account()
-        ucc = self.get(account_id)["ucc"]
-        return mode if (env is not None and env["ucc"] == ucc) else f"{mode}:{ucc}"
+        ucc = self.get(account_id).get("ucc") or self.get(account_id).get("client_code", "")
+        return mode if (env is not None and (env.get("ucc") == ucc or env.get("client_code") == ucc)) else f"{mode}:{ucc}"
 
     # ---- changing
     def add(self, fields: dict[str, Any]) -> str:
@@ -312,7 +429,7 @@ class AccountVault:
             self._save()
 
     def _find(self, account_id: str) -> dict[str, Any]:
-        if account_id == ENV_ID:
+        if account_id in (ENV_ID, "env_angel"):
             raise VaultError("The account from the .env file is changed by editing the .env file.")
         for a in self._data["accounts"]:
             if a["id"] == account_id:
@@ -325,13 +442,15 @@ class AccountVault:
                 continue
             if a["label"].lower() == f["label"].lower():
                 raise VaultError(f"There is already an account called '{a['label']}'. Use a different name.")
-            if a["ucc"] == f["ucc"]:
-                raise VaultError(f"The client ID {mask_ucc(f['ucc'])} is already saved as '{a['label']}'. Edit that account instead.")
+            a_ucc = a.get("ucc") or a.get("client_code")
+            f_ucc = f.get("ucc") or f.get("client_code")
+            if a_ucc and f_ucc and a_ucc == f_ucc:
+                raise VaultError(f"The client ID {mask_ucc(f_ucc)} is already saved as '{a['label']}'. Edit that account instead.")
 
 
 def scrub(text: str, creds: dict[str, str]) -> str:
     """Remove any secret that a broker or library error message might repeat."""
-    for k in ("NEO_CONSUMER_KEY", "NEO_MPIN", "NEO_TOTP_SECRET"):
+    for k in ("NEO_CONSUMER_KEY", "NEO_MPIN", "NEO_TOTP_SECRET", "ANGEL_API_KEY", "ANGEL_PIN", "ANGEL_TOTP_SECRET"):
         v = creds.get(k, "")
         if v and len(v) >= 4:
             text = text.replace(v, "••••")

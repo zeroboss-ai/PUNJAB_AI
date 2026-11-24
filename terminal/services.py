@@ -175,12 +175,13 @@ class Services:
     def get_valid_kotak_session(self):
         """Return the active or first connected Kotak session that is currently logged in."""
         sess = self.get_session()
-        if sess and getattr(sess, "logged_in", False) and getattr(sess, "client", None) is not None:
+        from .brokers.kotak import KotakSession
+        if isinstance(sess, KotakSession) and getattr(sess, "logged_in", False) and getattr(sess, "client", None) is not None:
             return sess
         for s in self.sessions.values():
-            if s and getattr(s, "logged_in", False) and getattr(s, "client", None) is not None:
+            if isinstance(s, KotakSession) and getattr(s, "logged_in", False) and getattr(s, "client", None) is not None:
                 return s
-        return sess or getattr(self, "_default_session", None)
+        return getattr(self, "_default_session", None)
 
     @property
     def session(self):
@@ -343,6 +344,44 @@ class Services:
                 raise RuntimeError(f"Three login attempts in a row failed for '{acct['label']}'. Wait a minute and check the details first: "
                                    f"Kotak can lock the MPIN after repeated wrong attempts.")
             creds = self.vault.creds(aid)
+            broker = acct.get("broker", "kotak")
+
+            if broker == "angelone":
+                from .brokers.angelone import AngelOneGateway, AngelOneSession
+                sess = AngelOneSession(creds)
+                try:
+                    sess.login(totp)
+                except Exception as e:
+                    self._fails[aid] = (n + 1, time.time())
+                    msg = scrub(str(e), creds)
+                    raise RuntimeError(msg) from None
+
+                self._fails.pop(aid, None)
+                seen = sess.my_ip
+                problem = self.netip.problem_for(seen, acct.get("static_ip", ""), self.cfg.static_ip, acct["label"]) if self.mode == "live" else None
+                if problem:
+                    sess.logout()
+                    raise RuntimeError(problem)
+
+                if self.mode == "live":
+                    gw = AngelOneGateway(sess, self.catalog, self.hub)
+                else:
+                    gw = SimBroker(self.hub, self.catalog, self.cfg.manual.paper_capital, self.cfg.data_dir)
+
+                self.sessions[aid] = sess
+                self.gateways[aid] = gw
+                ucc_display = acct.get("client_code") or acct.get("ucc", "")
+                ucc_masked = (ucc_display[:1] + "•••" + ucc_display[-2:]) if len(ucc_display) > 3 else ucc_display
+                self.accounts[aid] = {"id": aid, "label": acct["label"], "broker": "angelone", "ucc": ucc_masked}
+                if not self.active_account_id:
+                    self.active_account_id = aid
+                self.connected = True
+                self.journal.ns = self.vault.journal_namespace(aid, self.mode)
+                self.store.set("accounts.last", aid)
+                self._start_journal_loop()
+                log.info("connected to Angel One as '%s' in %s mode (total %d accounts connected)", acct["label"], self.mode, len(self.accounts))
+                return
+
             from .brokers.kotak import KotakInstruments, KotakSession
             sess = KotakSession(creds)
             try:
@@ -386,7 +425,7 @@ class Services:
 
             self.sessions[aid] = sess
             self.gateways[aid] = gw
-            self.accounts[aid] = {"id": aid, "label": acct["label"], "ucc": acct["ucc"][:1] + "•••" + acct["ucc"][-2:]}
+            self.accounts[aid] = {"id": aid, "label": acct["label"], "broker": "kotak", "ucc": acct["ucc"][:1] + "•••" + acct["ucc"][-2:]}
             if not self.active_account_id:
                 self.active_account_id = aid
             self.connected = True

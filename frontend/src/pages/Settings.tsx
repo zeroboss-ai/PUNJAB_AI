@@ -86,7 +86,7 @@ export function Settings() {
       <div className="page-head">
         <div>
           <h1>Settings</h1>
-          <p>Paper or real trading, your Kotak accounts, static IP, risk limits and connection details. Accounts are managed here; limits are changed in config.yaml and take effect when you restart the terminal.</p>
+          <p>Paper or real trading, your trading accounts (Kotak Neo &amp; Angel One), static IP, risk limits and connection details. Accounts are managed here; limits are changed in config.yaml and take effect when you restart the terminal.</p>
         </div>
       </div>
       <ModePanel />
@@ -98,9 +98,9 @@ export function Settings() {
           <div className="panel-b">
             <dl className="kv">
               <dt>Mode</dt><dd>{modeText}</dd>
-              <dt>Broker</dt><dd>{s?.mode === "sample" ? "None (sample data)" : s?.connected ? "Kotak Neo, connected" : "Kotak Neo, not connected"}</dd>
-              {s?.account && <><dt>Account</dt><dd>{s.account.label} <span className="muted">(client {s.account.ucc})</span></dd></>}
-              <dt>Your IP at Kotak</dt><dd>{s?.my_ip ?? dash}</dd>
+              <dt>Broker</dt><dd>{s?.mode === "sample" ? "None (sample data)" : s?.connected ? (s.accounts && s.accounts.length > 0 ? s.accounts.map(a => `${a.label} (${a.broker === "angelone" ? "Angel One" : "Kotak Neo"})`).join(", ") : "Connected") : "Not connected"}</dd>
+              {s?.account && <><dt>Active Account</dt><dd>{s.account.label} <span className="muted">({s.account.broker === "angelone" ? "Angel One" : "Kotak Neo"} · client {s.account.ucc})</span></dd></>}
+              <dt>Your IP</dt><dd>{s?.my_ip ?? dash}</dd>
               <dt>Prices</dt><dd>{s ? `${s.feed.subscribed} instruments streaming, ${s.feed.ticks.toLocaleString("en-IN")} ticks received` : dash}</dd>
               <dt>Instrument list</dt><dd>{s?.catalog_loading ? "Loading…" : "Ready"}</dd>
             </dl>

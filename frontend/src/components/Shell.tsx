@@ -177,7 +177,7 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
       <div className="main">
         {s?.mode === "sample" && <div className="banner sample">Sample data: prices are invented and orders are simulated. Nothing here touches your broker.</div>}
         {s?.mode === "paper" && <div className="banner paper">Paper mode: real Kotak prices, simulated orders.</div>}
-        {s?.mode === "live" && <div className="banner live">LIVE: orders go to your real Kotak account.</div>}
+        {s?.mode === "live" && <div className="banner live">LIVE: orders go to your real connected broker accounts.</div>}
         {s?.ip_alert && (
           <div className="banner ipwarn" role="alert">
             <b>Static IP:</b> <span>{s.ip_alert}</span>

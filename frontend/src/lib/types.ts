@@ -45,8 +45,8 @@ export interface SessionInfo {
   feed: { connected: boolean; age_s: number | null; ticks: number; subscribed: number };
   catalog_loading: boolean;
   indices: { label: string; key: string }[];
-  account?: { id: string; label: string; ucc: string } | null;
-  accounts?: { id: string; label: string; ucc: string }[];
+  account?: { id: string; label: string; ucc: string; broker?: "kotak" | "angelone" } | null;
+  accounts?: { id: string; label: string; ucc: string; broker?: "kotak" | "angelone" }[];
   active_account_id?: string;
   limits: {
     max_lots_per_order: number;
