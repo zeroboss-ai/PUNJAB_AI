@@ -183,6 +183,17 @@ class Services:
                 return s
         return getattr(self, "_default_session", None)
 
+    def get_valid_angel_session(self):
+        """Return the active or first connected Angel One session that is currently logged in."""
+        sess = self.get_session()
+        from .brokers.angelone import AngelOneSession
+        if isinstance(sess, AngelOneSession) and getattr(sess, "logged_in", False) and getattr(sess, "client", None) is not None:
+            return sess
+        for s in self.sessions.values():
+            if isinstance(s, AngelOneSession) and getattr(s, "logged_in", False) and getattr(s, "client", None) is not None:
+                return s
+        return None
+
     @property
     def session(self):
         return self.get_session()
@@ -347,7 +358,7 @@ class Services:
             broker = acct.get("broker", "kotak")
 
             if broker == "angelone":
-                from .brokers.angelone import AngelOneGateway, AngelOneSession
+                from .brokers.angelone import AngelOneGateway, AngelOneSession, AngelOneCatalog, AngelOneFeed, AngelOneChainProvider
                 sess = AngelOneSession(creds)
                 try:
                     sess.login(totp)
@@ -362,6 +373,24 @@ class Services:
                 if problem:
                     sess.logout()
                     raise RuntimeError(problem)
+
+                if not self.feed:
+                    cat = AngelOneCatalog(data_dir=self.cfg.data_dir)
+                    for c in self.index_cards():
+                        seg, tok = c["key"].split("|", 1)
+                        cat.register(Instrument(c["key"], seg, tok, c["label"], c["label"], "INDEX", tick=0.05))
+                    self.catalog.set(cat)
+                    cat.warm_background()
+
+                    feed = AngelOneFeed(self.get_valid_angel_session, self.cfg, catalog=cat)
+                    feed.on_quote = self.hub.update
+                    feed.start(lambda t: None)
+                    self.feed = feed
+                    self.hub.attach_feed(feed)
+                    self.hub.want("dashboard", [c["key"] for c in self.index_cards()])
+                    self.chain.set_provider(AngelOneChainProvider(self.get_valid_angel_session, cat, self.hub))
+                    self._seed_defaults()
+                    self.charts.start()
 
                 if self.mode == "live":
                     gw = AngelOneGateway(sess, self.catalog, self.hub)
@@ -593,8 +622,14 @@ class Services:
                 if self.active_account_id not in self.accounts:
                     self.active_account_id = next(iter(self.accounts.keys()))
                 self.connected = True
-                from .market.chain import KotakChainProvider
-                self.chain.set_provider(KotakChainProvider(self.get_valid_kotak_session, self.catalog))
+                active_acct = self.accounts.get(self.active_account_id, {})
+                if active_acct.get("broker") == "angelone":
+                    from .brokers.angelone import AngelOneChainProvider
+                    cat = getattr(self.catalog, "inner", self.catalog)
+                    self.chain.set_provider(AngelOneChainProvider(self.get_valid_angel_session, cat, self.hub))
+                else:
+                    from .market.chain import KotakChainProvider
+                    self.chain.set_provider(KotakChainProvider(self.get_valid_kotak_session, self.catalog))
 
     def shutdown(self) -> None:
         self._stopping.set()

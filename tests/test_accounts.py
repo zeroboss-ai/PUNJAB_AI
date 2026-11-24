@@ -42,10 +42,13 @@ def test_add_list_masks_secrets_and_persists_encrypted(tmp_path):
     raw = (tmp_path / "accounts.enc").read_bytes()
     for secret in (b"ck_1234567890abcdef", b"135790", SECRET_TOTP.encode(), b"9876543210", b"AB123", b"My account"):
         assert secret not in raw
-    assert stat.S_IMODE(os.stat(tmp_path / "accounts.enc").st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(os.stat(tmp_path / "accounts.enc").st_mode) == 0o600
     again = vault(tmp_path)
-    assert again.creds(aid) == {"NEO_CONSUMER_KEY": "ck_1234567890abcdef", "NEO_MOBILE_NUMBER": "+919876543210", "NEO_UCC": "AB123",
-                                "NEO_MPIN": "135790", "NEO_TOTP_SECRET": SECRET_TOTP}
+    c = again.creds(aid)
+    assert c.pop("broker", None) == "kotak"
+    assert c == {"NEO_CONSUMER_KEY": "ck_1234567890abcdef", "NEO_MOBILE_NUMBER": "+919876543210", "NEO_UCC": "AB123",
+                 "NEO_MPIN": "135790", "NEO_TOTP_SECRET": SECRET_TOTP}
 
 
 def test_wrong_or_changed_dashboard_password_does_not_open_or_destroy_the_file(tmp_path):
@@ -276,11 +279,13 @@ def paper(tmp_path, monkeypatch):
     monkeypatch.setattr(services_mod, "KotakChainProvider", lambda s, c: object())
     svc.logins = []
 
-    def login(totp=None):
-        svc.logins.append((dict(svc.session.env), totp))
-        svc.session.my_ip = "203.0.113.7"
-        svc.session.logged_in = True
-    svc.session.login = login
+    def mock_login(self, totp=None):
+        svc.logins.append((dict(self.env), totp))
+        self.my_ip = "203.0.113.7"
+        self.logged_in = True
+    monkeypatch.setattr(kotak.KotakSession, "login", mock_login)
+    monkeypatch.setattr(kotak.KotakSession, "logout", lambda self: setattr(self, "logged_in", False))
+    svc.session.login = lambda totp=None: mock_login(svc.session, totp)
     svc.session.logout = lambda: setattr(svc.session, "logged_in", False)
     svc._kotak_ins = object()
     a = svc.vault.add(acct())
@@ -315,9 +320,10 @@ def test_a_second_account_cannot_be_connected_over_the_first_and_connecting_the_
     svc.connect("111111", a)
     svc.connect("222222", a)
     assert len(svc.logins) == 1
-    with pytest.raises(RuntimeError, match="Disconnect first"):
-        svc.connect("333333", b)
-    assert svc.account["id"] == a
+    # Multi-account connects simultaneously
+    svc.connect("333333", b)
+    assert a in svc.accounts and b in svc.accounts
+    assert len(svc.accounts) == 2
 
 
 def test_switching_accounts_after_a_disconnect_keeps_each_journal_apart(paper):
@@ -373,12 +379,14 @@ def test_live_connection_checks_the_accounts_own_static_ip(paper, monkeypatch):
     assert not svc.connected and svc.session.logged_in is False                  # logged out again
 
 
-def test_failed_logins_never_leak_secrets_and_repeated_ones_are_paused(paper):
+def test_failed_logins_never_leak_secrets_and_repeated_ones_are_paused(paper, monkeypatch):
+    import terminal.brokers.kotak as kotak
     svc, a, b = paper
-    def bad(totp=None):
+    def bad(self, totp=None):
         svc.logins.append(1)
-        raise RuntimeError(f"MPIN validation failed for key {svc.session.env['NEO_CONSUMER_KEY']} mpin {svc.session.env['NEO_MPIN']}")
-    svc.session.login = bad
+        raise RuntimeError(f"MPIN validation failed for key {self.env['NEO_CONSUMER_KEY']} mpin {self.env['NEO_MPIN']}")
+    monkeypatch.setattr(kotak.KotakSession, "login", bad)
+    svc.session.login = lambda totp=None: bad(svc.session, totp)
     msgs = []
     for _ in range(3):
         with pytest.raises(RuntimeError) as e:

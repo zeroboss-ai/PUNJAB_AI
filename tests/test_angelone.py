@@ -314,3 +314,161 @@ def test_status_mapping():
     assert map_angel_order_status("cancelled") == "CANCELLED"
     assert map_angel_order_status("trigger pending") == "TRIGGER_PENDING"
     assert map_angel_order_status("open") == "OPEN"
+
+
+# --------------------------------------------------------------------------- Catalog & Feed & Chain
+def test_angelone_catalog_indexing(tmp_path):
+    from terminal.brokers.angelone import AngelOneCatalog
+
+    cat = AngelOneCatalog(data_dir=tmp_path)
+    # Check default index cards pre-registered
+    nifty = cat.get("nse_cm|Nifty 50")
+    assert nifty is not None
+    assert nifty.name == "NIFTY"
+    assert nifty.token == "99926000"
+
+    sensex = cat.get("bse_cm|SENSEX")
+    assert sensex is not None
+    assert sensex.name == "SENSEX"
+    assert sensex.token == "99919000"
+
+    # Index sample data
+    from datetime import date
+    sample_data = [
+        {
+            "token": "35352", "symbol": "NIFTY28NOV2424000CE", "name": "NIFTY",
+            "expiry": "28NOV2026", "strike": "2400000.000000", "lotsize": "65",
+            "instrumenttype": "OPTIDX", "exch_seg": "NFO", "tick_size": "5.0"
+        },
+        {
+            "token": "35353", "symbol": "NIFTY28NOV2424000PE", "name": "NIFTY",
+            "expiry": "28NOV2026", "strike": "2400000.000000", "lotsize": "65",
+            "instrumenttype": "OPTIDX", "exch_seg": "NFO", "tick_size": "5.0"
+        },
+        {
+            "token": "556625", "symbol": "CRUDEOIL18DEC26FUT", "name": "CRUDEOIL",
+            "expiry": "18DEC2026", "strike": "0.0", "lotsize": "100",
+            "instrumenttype": "FUTCOM", "exch_seg": "MCX", "tick_size": "100.0"
+        }
+    ]
+    cat._index_master(sample_data)
+
+    ce = cat.get("nse_fo|35352")
+    assert ce is not None
+    assert ce.symbol == "NIFTY28NOV2424000CE"
+    assert ce.strike == 24000.0
+    assert ce.kind == "CE"
+    assert ce.lot == 65
+
+    exps = cat.expiries_for("NIFTY")
+    assert "2026-11-28" in exps
+
+    opts = cat.options_for("NIFTY", "2026-11-28")
+    assert len(opts) == 2
+
+    crude_fut = cat.mcx_future("CRUDEOIL")
+    assert crude_fut is not None
+    assert crude_fut.token == "556625"
+    assert crude_fut.name == "CRUDEOIL"
+    assert crude_fut.kind == "FUT"
+
+
+def test_angelone_chain_provider_and_feed(tmp_path):
+    from terminal.brokers.angelone import AngelOneCatalog, AngelOneFeed, AngelOneChainProvider
+    from terminal.market.hub import QuoteHub
+    from terminal.market.chain import analyse
+
+    hub = QuoteHub()
+    cat = AngelOneCatalog(data_dir=tmp_path)
+    sample_data = [
+        {
+            "token": "35352", "symbol": "NIFTY28NOV2624000CE", "name": "NIFTY",
+            "expiry": "28NOV2026", "strike": "2400000.000000", "lotsize": "65",
+            "instrumenttype": "OPTIDX", "exch_seg": "NFO", "tick_size": "5.0"
+        },
+        {
+            "token": "35353", "symbol": "NIFTY28NOV2624000PE", "name": "NIFTY",
+            "expiry": "28NOV2026", "strike": "2400000.000000", "lotsize": "65",
+            "instrumenttype": "OPTIDX", "exch_seg": "NFO", "tick_size": "5.0"
+        }
+    ]
+    cat._index_master(sample_data)
+
+    mock_client = MagicMock()
+    mock_sess = MagicMock()
+    mock_sess.client = mock_client
+    mock_sess.logged_in = True
+
+    provider = AngelOneChainProvider(lambda: mock_sess, cat, hub)
+    unds = provider.underlyings()
+    assert any(u["name"] == "NIFTY" for u in unds)
+
+    exps = provider.expiries("NIFTY")
+    assert "2026-11-28" in exps
+
+    # Simulate hub spot
+    from terminal.market.models import Quote
+    hub.update(Quote("nse_cm|Nifty 50", ltp=24050.0))
+
+    raw = provider.fetch("NIFTY", "2026-11-28")
+    assert raw.underlying == "NIFTY"
+    assert raw.expiry == "2026-11-28"
+    assert raw.lot == 65
+    assert raw.spot == 24050.0
+    assert 24000.0 in raw.rows
+    assert "CE" in raw.rows[24000.0]
+    assert "PE" in raw.rows[24000.0]
+
+    # Run analyse
+    ans = analyse(raw, hub, window=12)
+    assert ans["spot"] == 24050.0
+    assert ans["atm"] == 24000.0
+    assert len(ans["rows"]) == 1
+
+    # Test feed pushing quotes
+    feed = AngelOneFeed(lambda: mock_sess, MagicMock(), catalog=cat)
+    feed.on_quote = hub.update
+    feed.subscribe_keys(["nse_cm|Nifty 50", "nse_fo|35352"])
+
+    mock_client.getMarketData.return_value = {
+        "status": True,
+        "data": {
+            "fetched": [
+                {
+                    "exchange": "NSE",
+                    "symbolToken": "99926000",
+                    "ltp": 24100.5,
+                    "close": 24000.0,
+                    "open": 24020.0,
+                    "high": 24120.0,
+                    "low": 23990.0
+                },
+                {
+                    "exchange": "NFO",
+                    "symbolToken": "35352",
+                    "ltp": 150.25,
+                    "close": 120.0,
+                    "open": 130.0,
+                    "high": 160.0,
+                    "low": 115.0,
+                    "tradeVolume": 5000,
+                    "opnInterest": 25000
+                }
+            ]
+        }
+    }
+
+    # Run one pass of feed poll
+    with patch("time.sleep"):
+        feed._poll_once()
+
+    # Verify hub received both quotes
+    q_idx = hub.get("nse_cm|Nifty 50")
+    assert q_idx is not None
+    assert q_idx.ltp == 24100.5
+
+    q_opt = hub.get("nse_fo|35352")
+    assert q_opt is not None
+    assert q_opt.ltp == 150.25
+    assert q_opt.volume == 5000
+    assert q_opt.oi == 25000
