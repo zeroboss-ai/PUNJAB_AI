@@ -158,6 +158,7 @@ export function StrategyStrikeModal({
       underlying,
       ltp: fut.ltp || spot,
       iv: 0,
+      tick: fut.tick,
     });
   };
 

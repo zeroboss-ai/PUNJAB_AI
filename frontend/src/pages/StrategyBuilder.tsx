@@ -33,6 +33,35 @@ const QUICK_UNDERLYINGS = [
   "GOLDM",
 ];
 
+/** Price spinner step: 0.05 for NSE/BSE, 0.50 for MCX Gold/Silver options (with contract tick override for MCX). */
+export function getLegPriceStep(leg: StrategyLeg, serverTicks?: Record<string, number>): number {
+  const isNseOrBse = /^(nse_fo|bse_fo|nse_cm|bse_cm)\|/.test(leg.key || "");
+  if (isNseOrBse) {
+    return 0.05;
+  }
+  const sym = (leg.symbol || leg.underlying || "").toUpperCase();
+  const isGoldOrSilver = /^(GOLD|SILVER)/.test(sym);
+  if (isGoldOrSilver && leg.kind !== "FUT") {
+    return 0.5;
+  }
+  const srv = serverTicks?.[leg.key];
+  if (srv && srv > 0) return srv;
+  if (leg.tick && leg.tick > 0) return leg.tick;
+  if (isGoldOrSilver) {
+    return leg.kind === "FUT" ? 1 : 0.5;
+  }
+  if (/^CRUDEOIL(?!M)/.test(sym)) {
+    return leg.kind === "FUT" ? 1 : 0.1;
+  }
+  if (/^(NATURALGAS|NATGASMINI)/.test(sym)) {
+    return leg.kind === "FUT" ? 0.1 : 0.05;
+  }
+  if (/^CRUDEOILM/.test(sym)) {
+    return leg.kind === "FUT" ? 1 : 0.05;
+  }
+  return 0.05;
+}
+
 interface PositionItem {
   key: string;
   symbol: string;
@@ -125,6 +154,27 @@ export function StrategyBuilder() {
   // Subscribe quotes for all active leg keys
   const legKeys = useMemo(() => legs.map((l) => l.key).filter(Boolean), [legs]);
   useWant(legKeys);
+
+  // Resolve exact broker tick size for MCX legs (in live/paper mode) so limit arrows match contract ticks
+  const [mcxTicks, setMcxTicks] = useState<Record<string, number>>({});
+  const fetchedMcxKeysRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (sess?.mode === "sample") return;
+    let alive = true;
+    const missing = legKeys.filter((k) => k.startsWith("mcx_fo|") && !fetchedMcxKeysRef.current.has(k));
+    for (const k of missing) {
+      fetchedMcxKeysRef.current.add(k);
+      api<{ instrument?: { tick?: number } }>(`/instrument?key=${encodeURIComponent(k)}`)
+        .then((r) => {
+          const tick = r?.instrument?.tick;
+          if (alive && tick && tick > 0) {
+            setMcxTicks((prev) => (prev[k] === tick ? prev : { ...prev, [k]: tick }));
+          }
+        })
+        .catch(() => { /* keep fallback tick */ });
+    }
+    return () => { alive = false; };
+  }, [legKeys, sess?.mode]);
 
   // Keep live LTP and calculated IV updated on active legs
   useEffect(() => {
@@ -558,6 +608,7 @@ export function StrategyBuilder() {
             <div className="stack gap-2" style={{ maxHeight: "480px", overflowY: "auto" }}>
               {legs.map((leg) => {
                 const liveLtp = leg.ltp ?? getQuote(leg.key)?.l;
+                const priceStep = getLegPriceStep(leg, mcxTicks);
                 return (
                   <div
                     key={leg.id}
@@ -656,10 +707,16 @@ export function StrategyBuilder() {
                             className="input sm num"
                             style={{ width: "100%", padding: "2px 6px", fontSize: "12px", textAlign: "right" }}
                             type="number"
-                            step="any"
+                            min={0}
+                            step={priceStep}
                             value={leg.price}
-                            onChange={(e) => handleUpdateLeg(leg.id, { price: Number(e.target.value) || 0 })}
-                            title="Limit price"
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              handleUpdateLeg(leg.id, {
+                                price: Number.isFinite(v) ? Math.max(0, Math.round(v * 100) / 100) : 0,
+                              });
+                            }}
+                            title={`Limit price (tick ${priceStep.toFixed(2)})`}
                           />
                           {liveLtp && liveLtp !== leg.price && (
                             <div className="mini muted" style={{ fontSize: "10px" }}>

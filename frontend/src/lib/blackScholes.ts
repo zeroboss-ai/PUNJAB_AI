@@ -169,6 +169,7 @@ export interface StrategyLeg {
   underlying: string;
   ltp?: number;
   iv?: number; // In decimal, e.g. 0.18 for 18%
+  tick?: number;
 }
 
 export interface PayoffPoint {
